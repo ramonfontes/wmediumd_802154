@@ -84,13 +84,14 @@ for addr in ${addrs[@]}; do
 	tmux send-keys -t $win '. func' C-m
 	tmux send-keys -t $win 'ip link add link wpan'$i' name pan'$i' type lowpan' C-m
 	tmux send-keys -t $win 'iwpan dev wpan'$i' set pan_id 0xbeef' C-m
-  tmux send-keys -t $win 'ip link set wpan'$i' up' C-m
-  tmux send-keys -t $win 'ip link set pan'$i' up' C-m
-  tmux send-keys -t $win 'ip -6 addr flush pan'$i'' C-m
-  tmux send-keys -t $win 'ip -6 addr add fe80::'$((i+1))'/64 dev pan'$i'' C-m
+	tmux send-keys -t $win 'ip link set wpan'$i' up' C-m
+ 	tmux send-keys -t $win 'ip link set pan'$i' up' C-m
+	tmux send-keys -t $win 'ip -6 addr flush pan'$i'' C-m
+ 	tmux send-keys -t $win 'ip -6 addr add fe80::'$((i+1))'/64 dev pan'$i'' C-m
 
 	i=$((i+1))
 done
+
 winct=$i
 
 tmux send-keys -t $session:0.0 'wpan-hwsim edge add 0 1 >/dev/null 2>&1' C-m
