@@ -3,7 +3,7 @@
 This is the first attempt at implementing a wmediumd-like mechanism for `mac802154_hwsim`. The implementation will be developed while considering `tests/interference.sh` for testing.
 
 Patches submitted to the Linux Kernel:
-* https://patchwork.kernel.org/project/linux-wpan/patch/20250325165312.26938-1-ramonreisfontes@gmail.com/
+* [https://patchwork.kernel.org/project/linux-wpan/patch/20250325165312.26938-1-ramonreisfontes@gmail.com/](https://patchwork.kernel.org/project/linux-wpan/list/?series=&submitter=176431&state=*&q=&archive=&delegate=)
 
 ## The content below is the same of https://github.com/ramonfontes/wmediumd.
 
