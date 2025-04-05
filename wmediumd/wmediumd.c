@@ -37,7 +37,7 @@
 #include <pthread.h>
 #include <string.h>
 
-#include "wmediumd_802154.h"
+#include "wmediumd.h"
 #include "ieee802154.h"
 #include "config.h"
 #include "wserver.h"
@@ -88,13 +88,6 @@ static void wqueue_init(struct wqueue *wqueue, int cw_min, int cw_max)
 	wqueue->cw_max = cw_max;
 }
 
-void station_init_queues(struct station *station)
-{
-	wqueue_init(&station->queues[IEEE80211_AC_BK], 15, 1023);
-	wqueue_init(&station->queues[IEEE80211_AC_BE], 15, 1023);
-	wqueue_init(&station->queues[IEEE80211_AC_VI], 7, 15);
-	wqueue_init(&station->queues[IEEE80211_AC_VO], 3, 7);
-}
 
 bool timespec_before(struct timespec *t1, struct timespec *t2)
 {
@@ -201,23 +194,6 @@ static inline u8 *frame_get_qos_ctl(struct frame *frame)
 		return (u8 *)hdr + 30;
 	else
 		return (u8 *)hdr + 24;
-}
-
-static enum ieee80211_ac_number frame_select_queue_80211(struct frame *frame)
-{
-	u8 *p;
-	int priority;
-
-	if (!frame_is_data(frame))
-		return IEEE80211_AC_VO;
-
-	if (!frame_is_data_qos(frame))
-		return IEEE80211_AC_BE;
-
-	p = frame_get_qos_ctl(frame);
-	priority = *p & QOS_CTL_TAG1D_MASK;
-
-	return ieee802_1d_to_ac[priority];
 }
 
 static double dBm_to_milliwatt(int decibel_intf)
@@ -351,7 +327,6 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
 	bool noack = false;
 	int i, j;
 	int rate_idx;
-	int ac;
 
 	/* TODO configure phy parameters */
 	int slot_time = 9;
@@ -372,8 +347,8 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
 	 * add the expiration time of the previous frame in the queue.
 	 */
 
-	ac = frame_select_queue_80211(frame);
-	queue = &station->queues[ac];
+	//ac = frame_select_queue_80211(frame);
+	//queue = &station->queues[ac];
 
 	/* try to "send" this frame at each of the rates in the rateset */
 	send_time = 0;
@@ -465,12 +440,12 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
         if (station->medium_id == tmpsta->medium_id) {
             w_logf(ctx, LOG_DEBUG, "Sta " MAC_FMT " medium is also #%d\n", MAC_ARGS(tmpsta->addr),
                    tmpsta->medium_id);
-            for (i = 0; i <= ac; i++) {
+            /*for (i = 0; i <= ac; i++) {
                 tail = list_last_entry_or_null(&tmpsta->queues[i].frames,
                                                struct frame, list);
                 if (tail && timespec_before(&target, &tail->expires))
                     target = tail->expires;
-            }
+            }*/
         } else {
             w_logf(ctx, LOG_DEBUG, "Sta " MAC_FMT " medium is not #%d, it is #%d\n", MAC_ARGS(tmpsta->addr),
                    station->medium_id, tmpsta->medium_id);
@@ -493,7 +468,7 @@ static int send_tx_info_frame_nl(struct wmediumd *ctx, struct frame *frame)
 	struct nl_sock *sock = ctx->sock;
 	struct nl_msg *msg;
 	int ret;
-
+	/*
 	msg = nlmsg_alloc();
 	if (!msg) {
 		w_logf(ctx, LOG_ERR, "Error allocating new message MSG!\n");
@@ -526,7 +501,7 @@ static int send_tx_info_frame_nl(struct wmediumd *ctx, struct frame *frame)
 		w_logf(ctx, LOG_ERR, "%s: nl_send_auto failed\n", __func__);
 		ret = -1;
 		goto out;
-	}
+	}*/
 	ret = 0;
 
 out:
@@ -576,7 +551,7 @@ int send_cloned_frame_msg(struct wmediumd *ctx, struct station *dst,
 	struct nl_msg *msg;
 	struct nl_sock *sock = ctx->sock;
 	int ret;
-
+	/*
 	msg = nlmsg_alloc();
 	if (!msg) {
 		w_logf(ctx, LOG_ERR, "Error allocating new message MSG!\n");
@@ -611,6 +586,7 @@ int send_cloned_frame_msg(struct wmediumd *ctx, struct station *dst,
 		ret = -1;
 		goto out;
 	}
+	*/
 	ret = 0;
 
 out:
@@ -739,11 +715,6 @@ void deliver_expired_frames(struct wmediumd *ctx)
 				q_ct[i]++;
 			}
 		}
-		w_logf(ctx, LOG_DEBUG, "[" TIME_FMT "] Station " MAC_FMT
-					   " BK %d BE %d VI %d VO %d\n",
-			   TIME_ARGS(&now), MAC_ARGS(station->addr),
-			   q_ct[IEEE80211_AC_BK], q_ct[IEEE80211_AC_BE],
-			   q_ct[IEEE80211_AC_VI], q_ct[IEEE80211_AC_VO]);
 
 		for (i = 0; i < IEEE80211_NUM_ACS; i++)
 			deliver_expired_frames_queue(ctx, &station->queues[i].frames, &now);
@@ -779,7 +750,7 @@ void deliver_expired_frames(struct wmediumd *ctx)
 
 static int process_recvd_data(struct wmediumd *ctx, struct nlmsghdr *nlh)
 {
-	struct nlattr *attrs[HWSIM_ATTR_MAX+1];
+	struct nlattr *attrs[MAC802154_HWSIM_ATTR_MAX+1];
 	/* generic netlink header*/
 	struct genlmsghdr *gnlh = nlmsg_data(nlh);
 
@@ -787,10 +758,10 @@ static int process_recvd_data(struct wmediumd *ctx, struct nlmsghdr *nlh)
 	struct frame *frame;
 	struct ieee80211_hdr *hdr;
 	u8 *src;
-    if (gnlh->cmd == HWSIM_CMD_FRAME) {
+    /*if (gnlh->cmd == HWSIM_CMD_FRAME) {
 		pthread_rwlock_rdlock(&snr_lock);
 		/* we get the attributes*/
-		genlmsg_parse(nlh, 0, attrs, HWSIM_ATTR_MAX, NULL);
+		/*genlmsg_parse(nlh, 0, attrs, MAC802154_HWSIM_ATTR_MAX, NULL);
 
 		if (attrs[HWSIM_ATTR_ADDR_TRANSMITTER]) {
 			u8 *hwaddr = (u8 *)nla_data(attrs[HWSIM_ATTR_ADDR_TRANSMITTER]);
@@ -852,7 +823,7 @@ out:
 		pthread_rwlock_unlock(&snr_lock);
 		return 0;
 
-	}
+	}*/
 	return 0;
 }
 
@@ -870,14 +841,14 @@ int nl_err_cb(struct sockaddr_nl *nla, struct nlmsgerr *nlerr, void *arg)
 
 struct frame* construct_tx_info_frame(struct wmediumd *ctx, struct nlmsghdr *nlh)
 {
-	struct nlattr *attrs[HWSIM_ATTR_MAX+1];
+	struct nlattr *attrs[MAC802154_HWSIM_ATTR_MAX+1];
 	struct genlmsghdr *gnlh = nlmsg_data(nlh);
 
 	struct station *sender;
 	struct frame *frame = NULL;
 	struct ieee80211_hdr *hdr;
 
-	if (gnlh->cmd == HWSIM_CMD_FRAME){
+	/*if (gnlh->cmd == HWSIM_CMD_FRAME){
 		genlmsg_parse(nlh, 0, attrs, HWSIM_ATTR_MAX, NULL);
 		u8 *hwaddr = (u8 *)nla_data(attrs[HWSIM_ATTR_ADDR_TRANSMITTER]);
 		u64 cookie = nla_get_u64(attrs[HWSIM_ATTR_COOKIE]);
@@ -898,7 +869,7 @@ struct frame* construct_tx_info_frame(struct wmediumd *ctx, struct nlmsghdr *nlh
 		
 		frame->cookie = cookie;
 		frame->sender = sender;
-	}
+	}*/
 
 out:
 	return frame;
@@ -963,13 +934,13 @@ int send_register_msg(struct wmediumd *ctx)
 	}
 
 	if (genlmsg_put(msg, NL_AUTO_PID, NL_AUTO_SEQ, ctx->family_id,
-			0, NLM_F_REQUEST, HWSIM_CMD_REGISTER,
+			0, NLM_F_REQUEST, MAC802154_HWSIM_CMD_REGISTER,
 			VERSION_NR) == NULL) {
 		w_logf(ctx, LOG_ERR, "%s: genlmsg_put failed\n", __func__);
 		ret = -1;
 		goto out;
 	}
-
+	
 	ret = nl_send_auto_complete(sock, msg);
 	if (ret < 0) {
 		w_logf(ctx, LOG_ERR, "%s: nl_send_auto failed\n", __func__);
@@ -1203,7 +1174,7 @@ int main(int argc, char *argv[])
 			break;
 		case 'V':
 			printf("wmediumd v%s - a wireless medium simulator "
-			       "for mac80211_hwsim\n", VERSION_STR);
+			       "for mac802154_hwsim\n", VERSION_STR);
 			exit(EXIT_SUCCESS);
 			break;
 		case 'c':

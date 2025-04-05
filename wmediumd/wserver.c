@@ -678,6 +678,7 @@ void on_listen_event(int fd, short what, void *wctx) {
         w_logf(wctx, LOG_ERR, "Error during allocation of memory in on_listen_event wmediumd/wserver.c\n");
         return;
     }
+    
     actx->wctx = wctx;
     actx->server_socket = fd;
     actx->thread = malloc(sizeof(pthread_t));
@@ -709,7 +710,6 @@ void *run_wserver(void *ctx) {
         return NULL;
     }
     w_logf(ctx, LOG_DEBUG, LOG_PREFIX "Listening for incoming connection\n");
-
     evutil_make_socket_nonblocking(listen_soc);
     server_event_base = event_base_new();
     accept_event = event_new(server_event_base, listen_soc, EV_READ | EV_PERSIST, on_listen_event, ctx);

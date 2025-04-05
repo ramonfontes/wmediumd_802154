@@ -21,7 +21,7 @@
 #ifndef WMEDIUMD_SERVER_H
 #define WMEDIUMD_SERVER_H
 
-#include "wmediumd_802154.h"
+#include "wmediumd.h"
 #include "wserver_messages.h"
 
 struct request_ctx {

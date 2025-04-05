@@ -106,8 +106,8 @@ tmux send-keys -t $session:2 'sleep 2; ping -c 2 fe80::1' C-m
 # start wmediumd
 win=$session:$((winct+1)).0
 winct=$((winct+1))
-tmux new-window -a -t $session -n wmediumd
-tmux send-keys -t $win '../wmediumd/wmediumd_802154 -c diamond.cfg' C-m
+#tmux new-window -a -t $session -n wmediumd_802154
+#tmux send-keys -t $win '../wmediumd/wmediumd_802154 -s -c diamond.cfg' C-m
 
 #tmux select-window -t $session:1
 #tmux send-keys -t $session:1 'sleep 2; ping -c 5 fe80::1' C-m

@@ -21,8 +21,8 @@
  *	02110-1301, USA.
  */
 
-#ifndef IEEE80211_H_
-#define IEEE80211_H_
+#ifndef IEEE802154_H_
+#define IEEE802154_H_
 
 #define IEEE80211_AVAILABLE_RATES 12
 #define IEEE80211_TX_MAX_RATES 4
@@ -43,24 +43,6 @@
 
 #define QOS_CTL_TAG1D_MASK	0x07
 
-enum ieee80211_ac_number {
-	IEEE80211_AC_VO		= 0,
-	IEEE80211_AC_VI		= 1,
-	IEEE80211_AC_BE		= 2,
-	IEEE80211_AC_BK		= 3,
-};
-
-static const enum ieee80211_ac_number ieee802_1d_to_ac[8] = {
-	IEEE80211_AC_BE,
-	IEEE80211_AC_BK,
-	IEEE80211_AC_BK,
-	IEEE80211_AC_BE,
-	IEEE80211_AC_VI,
-	IEEE80211_AC_VI,
-	IEEE80211_AC_VO,
-	IEEE80211_AC_VO
-};
-
 struct ieee80211_hdr {
 	unsigned char frame_control[2];
 	unsigned char duration_id[2];
@@ -71,4 +53,4 @@ struct ieee80211_hdr {
 	unsigned char addr4[ETH_ALEN];
 };
 
-#endif /* IEEE80211_H_ */
+#endif /* IEEE802154_H_ */
