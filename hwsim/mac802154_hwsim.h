@@ -31,6 +31,7 @@ enum {
 	MAC802154_HWSIM_CMD_DEL_EDGE,
 	MAC802154_HWSIM_CMD_NEW_EDGE,
 	MAC802154_HWSIM_CMD_REGISTER,
+	MAC802154_HWSIM_CMD_FRAME,
 
 	__MAC802154_HWSIM_CMD_MAX,
 };
@@ -72,5 +73,25 @@ enum {
 };
 
 #define MAC802154_HWSIM_EDGE_ATTR_MAX (__MAC802154_HWSIM_EDGE_ATTR_MAX - 1)
+
+/**
+ * DOC: Frame transmission support over virtio
+ *
+ * Frame transmission is also supported over virtio to allow communication
+ * with external entities.
+ */
+
+/**
+ * enum hwsim_vqs - queues for virtio frame transmission
+ *
+ * @HWSIM_VQ_TX: send frames to external entity
+ * @HWSIM_VQ_RX: receive frames and transmission info reports
+ * @HWSIM_NUM_VQS: enum limit
+ */
+enum hwsim_vqs {
+	HWSIM_VQ_TX,
+	HWSIM_VQ_RX,
+	HWSIM_NUM_VQS,
+};
 
 #endif /* __MAC802154_HWSIM_H */
