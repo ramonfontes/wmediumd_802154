@@ -101,7 +101,7 @@ static DEFINE_SPINLOCK(hwsim_virtio_lock);
 static void hwsim_virtio_rx_work(struct work_struct *work);
 static DECLARE_WORK(hwsim_virtio_rx, hwsim_virtio_rx_work);
 
-static int hwsim_tx_virtio(struct hwsim_phy *data,
+static int hwsim_tx_virtio(struct hwsim_phy *phy,
 			   struct sk_buff *skb)
 {
 	struct scatterlist sg[1];
@@ -130,7 +130,7 @@ out_free:
 }
 #else
 /* cause a linker error if this ends up being needed */
-extern int hwsim_tx_virtio(struct hwsim_phy *data,
+extern int hwsim_tx_virtio(struct hwsim_phy *phy,
 			   struct sk_buff *skb);
 #define hwsim_virtio_enabled false
 #endif
@@ -174,6 +174,7 @@ struct hwsim_phy {
 
 	struct rhash_head rht;
 	struct dentry *debugfs;
+	atomic_t pending_cookie;
 	struct sk_buff_head pending;
 	struct device *dev;
 	struct mutex mutex;
@@ -291,7 +292,7 @@ static int hwsim_unicast_netgroup(struct hwsim_phy *data,
 	rcu_read_lock();
 	for_each_net_rcu(net) {
 		if (data->netgroup == hwsim_net_get_netgroup(net)) {
-		//	res = genlmsg_unicast(net, skb, portid);
+			res = genlmsg_unicast(net, skb, portid);
 			found = true;
 			break;
 		}
@@ -422,18 +423,25 @@ out:
 	return 0;
 }
 
-static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff *skb,
+static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff *my_skb,
 			     int dst_portid, u8 lqi)
 {
-	struct ieee802154_hdr hdr;
+	struct sk_buff *skb;
 	struct hwsim_phy *phy = hw->priv;
-	struct hwsim_pib *pib;
+	//struct hwsim_pib *pib;
+	struct ieee802154_hdr *hdr = (struct ieee802154_hdr *) my_skb->data;
 	void *msg_head;
+	uintptr_t cookie;
+	
+	//rcu_read_lock();
+	//pib = rcu_dereference(phy->pib);
+	
+	if (!pskb_may_pull(my_skb, 3)) {
+		dev_dbg(hw->parent, "invalid frame\n");
+		goto drop;
+	}
 
-	rcu_read_lock();
-	pib = rcu_dereference(phy->pib);
 	pr_info("Entrou no register wmediumd");
-
 	/* If the queue contains MAX_QUEUE skb's drop some */
 	if (skb_queue_len(&phy->pending) >= MAX_QUEUE) {
 		/* Dropping until WARN_QUEUE level */
@@ -443,118 +451,50 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 		}
 	}
 
-	if (!pskb_may_pull(skb, 3)) {
-		dev_dbg(hw->parent, "invalid frame\n");
-		goto drop;
-	}
-
 	skb = genlmsg_new(GENLMSG_DEFAULT_SIZE, GFP_ATOMIC);
 	if (skb == NULL)
 		goto nla_put_failure;
 
-	/*msg_head = genlmsg_put(skb, 0, 0, &hwsim_genl_family, 0,
+	msg_head = genlmsg_put(skb, 0, 0, &hwsim_genl_family, 0,
 			       MAC802154_HWSIM_CMD_FRAME);
 	if (msg_head == NULL) {
 		pr_debug("mac802154_hwsim: problem with msg_head\n");
 		goto nla_put_failure;
-	}*/
-
-	memcpy(&hdr, skb->data, 3);
-
-	/* Level 4 filtering: Frame fields validity */
-	if (pib->filt_level == IEEE802154_FILTERING_4_FRAME_FIELDS) {
-		/* a) Drop reserved frame types */
-		switch (mac_cb(skb)->type) {
-		case IEEE802154_FC_TYPE_BEACON:
-		case IEEE802154_FC_TYPE_DATA:
-		case IEEE802154_FC_TYPE_ACK:
-		case IEEE802154_FC_TYPE_MAC_CMD:
-			break;
-		default:
-			dev_dbg(hw->parent, "unrecognized frame type 0x%x\n",
-				mac_cb(skb)->type);
-			goto drop;
-		}
-
-		/* b) Drop reserved frame versions */
-		switch (hdr.fc.version) {
-		case IEEE802154_2003_STD:
-		case IEEE802154_2006_STD:
-		case IEEE802154_STD:
-			break;
-		default:
-			dev_dbg(hw->parent,
-				"unrecognized frame version 0x%x\n",
-				hdr.fc.version);
-			goto drop;
-		}
-
-		/* c) PAN ID constraints */
-		if ((mac_cb(skb)->dest.mode == IEEE802154_ADDR_LONG ||
-		     mac_cb(skb)->dest.mode == IEEE802154_ADDR_SHORT) &&
-		    mac_cb(skb)->dest.pan_id != pib->filt.pan_id &&
-		    mac_cb(skb)->dest.pan_id != cpu_to_le16(IEEE802154_PANID_BROADCAST)) {
-			dev_dbg(hw->parent,
-				"unrecognized PAN ID %04x\n",
-				le16_to_cpu(mac_cb(skb)->dest.pan_id));
-			goto drop;
-		}
-
-		/* d1) Short address constraints */
-		if (mac_cb(skb)->dest.mode == IEEE802154_ADDR_SHORT &&
-		    mac_cb(skb)->dest.short_addr != pib->filt.short_addr &&
-		    mac_cb(skb)->dest.short_addr != cpu_to_le16(IEEE802154_ADDR_BROADCAST)) {
-			dev_dbg(hw->parent,
-				"unrecognized short address %04x\n",
-				le16_to_cpu(mac_cb(skb)->dest.short_addr));
-			goto drop;
-		}
-
-		/* d2) Extended address constraints */
-		if (mac_cb(skb)->dest.mode == IEEE802154_ADDR_LONG &&
-		    mac_cb(skb)->dest.extended_addr != pib->filt.ieee_addr) {
-			dev_dbg(hw->parent,
-				"unrecognized long address 0x%016llx\n",
-				mac_cb(skb)->dest.extended_addr);
-			goto drop;
-		}
-
-		/* d4) Specific PAN coordinator case (no parent) */
-		if ((mac_cb(skb)->type == IEEE802154_FC_TYPE_DATA ||
-		     mac_cb(skb)->type == IEEE802154_FC_TYPE_MAC_CMD) &&
-		    mac_cb(skb)->dest.mode == IEEE802154_ADDR_NONE) {
-			dev_dbg(hw->parent,
-				"relaying is not supported\n");
-			goto drop;
-		}
-
-		/* e) Beacon frames follow specific PAN ID rules */
-		if (mac_cb(skb)->type == IEEE802154_FC_TYPE_BEACON &&
-		    pib->filt.pan_id != cpu_to_le16(IEEE802154_PANID_BROADCAST) &&
-		    mac_cb(skb)->dest.pan_id != pib->filt.pan_id) {
-			dev_dbg(hw->parent,
-				"invalid beacon PAN ID %04x\n",
-				le16_to_cpu(mac_cb(skb)->dest.pan_id));
-			goto drop;
-		}
 	}
 
-	rcu_read_unlock();
+	/* We get the skb->data */
+	if (nla_put(skb, MAC802154_HWSIM_ATTR_FRAME, my_skb->len, my_skb->data))
+		goto nla_put_failure;
 
-	if (hwsim_unicast_netgroup(phy, skb, dst_portid))
+	/* We create a cookie to identify this skb */
+	cookie = atomic_inc_return(&phy->pending_cookie);
+	//info->rate_driver_data[0] = (void *)cookie;
+	if (nla_put_u64_64bit(skb, MAC802154_HWSIM_ATTR_COOKIE, cookie, MAC802154_HWSIM_ATTR_PAD))
+		goto nla_put_failure;
+
+	genlmsg_end(skb, msg_head);
+
+	//rcu_read_unlock();
+
+	if (hwsim_virtio_enabled) {
+		//if (hwsim_tx_virtio(phy, skb))
+		//	goto err_free_txskb;
+	} else {
+		if (hwsim_unicast_netgroup(phy, skb, dst_portid))
 			goto err_free_txskb;
+	}
 
 	/* Enqueue the packet */
-	skb_queue_tail(&phy->pending, skb);
+	//skb_queue_tail(&phy->pending, my_skb);
 	//data->tx_pkts++;
 	//data->tx_bytes += my_skb->len;
 
-	ieee802154_rx_irqsafe(hw, skb, lqi);
+	//ieee802154_rx_irqsafe(hw, skb, lqi);
 
 	return;
 
 drop:
-	rcu_read_unlock();
+	//rcu_read_unlock();
 	kfree_skb(skb);
 nla_put_failure:
 	nlmsg_free(skb);
@@ -701,7 +641,7 @@ static int hwsim_hw_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 
 			einfo = rcu_dereference(e->info);
 			if (newskb){
-				if (_portid)
+				if (_portid || hwsim_virtio_enabled)
 					mac802154_hwsim_tx_frame_nl(e->endpoint->hw, newskb, _portid, einfo->lqi);
 				else
 					hwsim_hw_receive(e->endpoint->hw, newskb, einfo->lqi);
@@ -1230,7 +1170,7 @@ static void hwsim_register_wmediumd(struct net *net, u32 portid)
 static int hwsim_register_received_nl(struct sk_buff *msg, struct genl_info *info)
 {
 	struct net *net = genl_info_net(info);
-	struct hwsim_phy *data;
+	//struct hwsim_phy *data;
 	int chans = 1;
 	
 	//spin_lock_bh(&hwsim_radio_lock);
@@ -1322,6 +1262,7 @@ static struct genl_family hwsim_genl_family __ro_after_init = {
 	.version = 1,
 	.maxattr = MAC802154_HWSIM_ATTR_MAX,
 	.policy = hwsim_genl_policy,
+	.netnsok = true,
 	.module = THIS_MODULE,
 	.small_ops = hwsim_nl_ops,
 	.n_small_ops = ARRAY_SIZE(hwsim_nl_ops),
@@ -1437,7 +1378,7 @@ static int hwsim_add_one(struct genl_info *info, struct device *dev,
 	else
 		net = &init_net;
 	wpan_phy_net_set(hw->phy, net);
-
+	
 	phy = hw->priv;
 	phy->hw = hw;
 
@@ -1483,6 +1424,9 @@ static int hwsim_add_one(struct genl_info *info, struct device *dev,
 		err = -ENOMEM;
 		goto err_pib;
 	}
+
+	if (info)
+		phy->portid = info->snd_portid;
 
 	pib->channel = 13;
 	pib->filt.short_addr = cpu_to_le16(IEEE802154_ADDR_BROADCAST);
@@ -1987,8 +1931,6 @@ out_exit_netlink:
 	hwsim_exit_netlink();
 out_unregister_pernet:
 	unregister_pernet_device(&hwsim_net_ops);
-platform_dev:
-	genl_unregister_family(&hwsim_genl_family);
 	return rc;
 out_unregister_driver:
 	platform_driver_unregister(&mac802154hwsim_driver);

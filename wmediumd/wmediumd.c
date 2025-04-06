@@ -490,7 +490,7 @@ static int send_tx_info_frame_nl(struct wmediumd *ctx, struct frame *frame)
 	    nla_put(msg, HWSIM_ATTR_TX_INFO,
 		    frame->tx_rates_count * sizeof(struct hwsim_tx_rate),
 		    frame->tx_rates) ||
-	    nla_put_u64(msg, HWSIM_ATTR_COOKIE, frame->cookie)) {
+	    nla_put_u64(msg, MAC802154_HWSIM_ATTR_COOKIE, frame->cookie)) {
 			w_logf(ctx, LOG_ERR, "%s: Failed to fill a payload\n", __func__);
 			ret = -1;
 			goto out;
@@ -559,7 +559,7 @@ int send_cloned_frame_msg(struct wmediumd *ctx, struct station *dst,
 	}
 
 	if (genlmsg_put(msg, NL_AUTO_PID, NL_AUTO_SEQ, ctx->family_id,
-			0, NLM_F_REQUEST, HWSIM_CMD_FRAME,
+			0, NLM_F_REQUEST, MAC802154_HWSIM_CMD_FRAME,
 			VERSION_NR) == NULL) {
 		w_logf(ctx, LOG_ERR, "%s: genlmsg_put failed\n", __func__);
 		ret = -1;
@@ -568,7 +568,7 @@ int send_cloned_frame_msg(struct wmediumd *ctx, struct station *dst,
 
 	if (nla_put(msg, HWSIM_ATTR_ADDR_RECEIVER, ETH_ALEN,
 		    dst->hwaddr) ||
-	    nla_put(msg, HWSIM_ATTR_FRAME, data_len, data) ||
+	    nla_put(msg, MAC802154_HWSIM_ATTR_FRAME, data_len, data) ||
 	    nla_put_u32(msg, HWSIM_ATTR_RX_RATE, rate_idx) ||
 	    nla_put_u32(msg, HWSIM_ATTR_FREQ, freq) ||
 	    nla_put_u32(msg, HWSIM_ATTR_SIGNAL, signal)) {
@@ -758,12 +758,15 @@ static int process_recvd_data(struct wmediumd *ctx, struct nlmsghdr *nlh)
 	struct frame *frame;
 	struct ieee80211_hdr *hdr;
 	u8 *src;
-    /*if (gnlh->cmd == HWSIM_CMD_FRAME) {
+	
+	if (gnlh->cmd == MAC802154_HWSIM_CMD_FRAME) {
+		w_logf(ctx, LOG_ERR, "CMD detected!\n");
+    
 		pthread_rwlock_rdlock(&snr_lock);
 		/* we get the attributes*/
-		/*genlmsg_parse(nlh, 0, attrs, MAC802154_HWSIM_ATTR_MAX, NULL);
+		genlmsg_parse(nlh, 0, attrs, MAC802154_HWSIM_ATTR_MAX, NULL);
 
-		if (attrs[HWSIM_ATTR_ADDR_TRANSMITTER]) {
+		/*if (attrs[HWSIM_ATTR_ADDR_TRANSMITTER]) {
 			u8 *hwaddr = (u8 *)nla_data(attrs[HWSIM_ATTR_ADDR_TRANSMITTER]);
 
 			unsigned int data_len =
@@ -776,7 +779,7 @@ static int process_recvd_data(struct wmediumd *ctx, struct nlmsghdr *nlh)
 			struct hwsim_tx_rate *tx_rates =
 				(struct hwsim_tx_rate *)
 				nla_data(attrs[HWSIM_ATTR_TX_INFO]);
-			u64 cookie = nla_get_u64(attrs[HWSIM_ATTR_COOKIE]);
+			u64 cookie = nla_get_u64(attrs[MAC802154_HWSIM_ATTR_COOKIE]);
 			u32 freq;
 			freq = attrs[HWSIM_ATTR_FREQ] ?
 					nla_get_u32(attrs[HWSIM_ATTR_FREQ]) : 2412;
@@ -818,12 +821,12 @@ static int process_recvd_data(struct wmediumd *ctx, struct nlmsghdr *nlh)
 					MAC_ARGS(frame->sender->hwaddr), data_len, cookie);
 			
 			queue_frame(ctx, sender, frame);
-		}
+		}*/
 out:
 		pthread_rwlock_unlock(&snr_lock);
 		return 0;
 
-	}*/
+	}
 	return 0;
 }
 
@@ -848,11 +851,11 @@ struct frame* construct_tx_info_frame(struct wmediumd *ctx, struct nlmsghdr *nlh
 	struct frame *frame = NULL;
 	struct ieee80211_hdr *hdr;
 
-	/*if (gnlh->cmd == HWSIM_CMD_FRAME){
+	/*if (gnlh->cmd == MAC802154_HWSIM_CMD_FRAME){
 		genlmsg_parse(nlh, 0, attrs, HWSIM_ATTR_MAX, NULL);
 		u8 *hwaddr = (u8 *)nla_data(attrs[HWSIM_ATTR_ADDR_TRANSMITTER]);
-		u64 cookie = nla_get_u64(attrs[HWSIM_ATTR_COOKIE]);
-		char *data = (char *)nla_data(attrs[HWSIM_ATTR_FRAME]);
+		u64 cookie = nla_get_u64(attrs[MAC802154_HWSIM_ATTR_COOKIE]);
+		char *data = (char *)nla_data(attrs[MAC802154_HWSIM_ATTR_FRAME]);
 
 		hdr = (struct ieee80211_hdr *)data;
 
@@ -961,7 +964,7 @@ static void net_sock_event_cb(int fd, short what, void *data)
 	struct frame* pending_frame;
 	struct frame tx_info_frame;
 	bzero(in_buf, PAGE_SIZE);
-
+	
 	if (is_ap){
 		numBytes = recvfrom(fd, in_buf, PAGE_SIZE, 0, (struct sockaddr*)&clientAddr, &len);
         if (numBytes < 0){
@@ -1015,7 +1018,7 @@ static int init_netlink(struct wmediumd *ctx)
 		w_logf(ctx, LOG_ERR, "Error allocating netlink callbacks\n");
 		return -1;
 	}
-
+	
 	sock = nl_socket_alloc_cb(ctx->cb);
 	if (!sock) {
 		w_logf(ctx, LOG_ERR, "Error allocating netlink socket\n");
@@ -1023,7 +1026,7 @@ static int init_netlink(struct wmediumd *ctx)
 	}
 
 	ctx->sock = sock;
-
+	
 	ret = genl_connect(sock);
 	if (ret < 0) {
 		w_logf(ctx, LOG_ERR, "Error connecting netlink socket ret=%d\n", ret);
