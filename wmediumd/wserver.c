@@ -161,10 +161,10 @@ int handle_snr_update_request(struct request_ctx *ctx, const snr_update_request 
         pthread_rwlock_wrlock(&snr_lock);
 
         list_for_each_entry(station, &ctx->ctx->stations, list) {
-            if (memcmp(&request->from_addr, station->addr, ETH_ALEN) == 0) {
+            if (memcmp(&request->from_addr, station->extended_src, ETH_ALEN) == 0) {
                 sender = station;
             }
-            if (memcmp(&request->to_addr, station->addr, ETH_ALEN) == 0) {
+            if (memcmp(&request->to_addr, station->extended_src, ETH_ALEN) == 0) {
                 receiver = station;
             }
         }
@@ -176,7 +176,7 @@ int handle_snr_update_request(struct request_ctx *ctx, const snr_update_request 
             response.update_result = WUPDATE_INTF_NOTFOUND;
         } else {
             w_logf(ctx->ctx, LOG_NOTICE, LOG_PREFIX "Performing SNR update: from=" MAC_FMT ", to=" MAC_FMT ", snr=%d\n",
-                   MAC_ARGS(sender->addr), MAC_ARGS(receiver->addr), request->snr);
+                   MAC_ARGS(sender->extended_src), MAC_ARGS(receiver->extended_src), request->snr);
 
             mirror_link_(ctx, sender->index, receiver->index, request->snr);
             response.update_result = WUPDATE_SUCCESS;
@@ -204,7 +204,7 @@ int handle_position_update_request(struct request_ctx *ctx, const position_updat
         pthread_rwlock_wrlock(&snr_lock);
 
         list_for_each_entry(station, &ctx->ctx->stations, list) {
-			if (memcmp(&request->sta_addr, station->addr, ETH_ALEN) == 0) {
+			if (memcmp(&request->sta_addr, station->extended_src, ETH_ALEN) == 0) {
 				sender = station;
 				sender->x = request->posX;
 				sender->y = request->posY;
@@ -237,7 +237,7 @@ int handle_txpower_update_request(struct request_ctx *ctx, const txpower_update_
         pthread_rwlock_wrlock(&snr_lock);
 
         list_for_each_entry(station, &ctx->ctx->stations, list) {
-			if (memcmp(&request->sta_addr, station->addr, ETH_ALEN) == 0) {
+			if (memcmp(&request->sta_addr, station->extended_src, ETH_ALEN) == 0) {
 				sender = station;
 				sender->tx_power = request->txpower_;
 			}
@@ -268,7 +268,7 @@ int handle_gaussian_random_update_request(struct request_ctx *ctx, const gaussia
         pthread_rwlock_wrlock(&snr_lock);
 
         list_for_each_entry(station, &ctx->ctx->stations, list) {
-			if (memcmp(&request->sta_addr, station->addr, ETH_ALEN) == 0) {
+			if (memcmp(&request->sta_addr, station->extended_src, ETH_ALEN) == 0) {
 				sender = station;
 				sender->gRandom = request->gaussian_random_;
 			}
@@ -299,7 +299,7 @@ int handle_gain_update_request(struct request_ctx *ctx, const gain_update_reques
         pthread_rwlock_wrlock(&snr_lock);
 
         list_for_each_entry(station, &ctx->ctx->stations, list) {
-			if (memcmp(&request->sta_addr, station->addr, ETH_ALEN) == 0) {
+			if (memcmp(&request->sta_addr, station->extended_src, ETH_ALEN) == 0) {
 				sender = station;
 				sender->gain = request->gain_;
 			}
@@ -332,10 +332,10 @@ int handle_errprob_update_request(struct request_ctx *ctx, const errprob_update_
         pthread_rwlock_wrlock(&snr_lock);
 
         list_for_each_entry(station, &ctx->ctx->stations, list) {
-            if (memcmp(&request->from_addr, station->addr, ETH_ALEN) == 0) {
+            if (memcmp(&request->from_addr, station->extended_src, ETH_ALEN) == 0) {
                 sender = station;
             }
-            if (memcmp(&request->to_addr, station->addr, ETH_ALEN) == 0) {
+            if (memcmp(&request->to_addr, station->extended_src, ETH_ALEN) == 0) {
                 receiver = station;
             }
         }
@@ -350,7 +350,7 @@ int handle_errprob_update_request(struct request_ctx *ctx, const errprob_update_
         } else {
             w_logf(ctx->ctx, LOG_NOTICE,
                    LOG_PREFIX "Performing ERRPROB update: from=" MAC_FMT ", to=" MAC_FMT ", errprob=%f\n",
-                   MAC_ARGS(sender->addr), MAC_ARGS(receiver->addr), errprob);
+                   MAC_ARGS(sender->extended_src), MAC_ARGS(receiver->extended_src), errprob);
             ctx->ctx->error_prob_matrix[sender->index * ctx->ctx->num_stas + receiver->index] = errprob;
             ctx->ctx->error_prob_matrix[receiver->index * ctx->ctx->num_stas + sender->index] = errprob;
             response.update_result = WUPDATE_SUCCESS;
@@ -380,23 +380,23 @@ int handle_specprob_update_request(struct request_ctx *ctx, const specprob_updat
         pthread_rwlock_wrlock(&snr_lock);
 
         list_for_each_entry(station, &ctx->ctx->stations, list) {
-            if (memcmp(&request->from_addr, station->addr, ETH_ALEN) == 0) {
+            if (memcmp(&request->from_addr, station->extended_src, ETH_ALEN) == 0) {
                 sender = station;
             }
-            if (memcmp(&request->to_addr, station->addr, ETH_ALEN) == 0) {
+            if (memcmp(&request->to_addr, station->extended_src, ETH_ALEN) == 0) {
                 receiver = station;
             }
         }
 
         if (!sender || !receiver) {
-            w_logf(ctx->ctx, LOG_WARNING,
-                   LOG_PREFIX "Could not perform SPECPROB update from=" MAC_FMT ", to=" MAC_FMT "; station(s) not found\n",
-                   MAC_ARGS(request->from_addr), MAC_ARGS(request->to_addr));
+            //w_logf(ctx->ctx, LOG_WARNING,
+            //       LOG_PREFIX "Could not perform SPECPROB update from=" MAC_FMT ", to=" MAC_FMT "; station(s) not found\n",
+            //       MAC_ARGS(request->from_addr), MAC_ARGS(request->to_addr));
             response.update_result = WUPDATE_INTF_NOTFOUND;
         } else {
-            w_logf(ctx->ctx, LOG_NOTICE,
-                   LOG_PREFIX "Performing SPECPROB update: from=" MAC_FMT ", to=" MAC_FMT "\n",
-                   MAC_ARGS(sender->addr), MAC_ARGS(receiver->addr));
+            //w_logf(ctx->ctx, LOG_NOTICE,
+            //       LOG_PREFIX "Performing SPECPROB update: from=" MAC_FMT ", to=" MAC_FMT "\n",
+            //       MAC_ARGS(sender->addr), MAC_ARGS(receiver->addr));
             double *specific_mat = malloc(sizeof(double) * SPECIFIC_MATRIX_MAX_SIZE_IDX * SPECIFIC_MATRIX_MAX_RATE_IDX);
             if (!specific_mat) {
                 w_logf(ctx->ctx, LOG_ERR, "Error during allocation of memory in handle_specprob_update_request wmediumd/wserver.c\n");
@@ -513,7 +513,7 @@ int handle_medium_update_request(struct request_ctx *ctx, const medium_update_re
     struct station *station;
 
     list_for_each_entry(station, &ctx->ctx->stations, list) {
-        if (memcmp(&request->sta_addr, station->addr, ETH_ALEN) == 0) {
+        if (memcmp(&request->sta_addr, station->extended_src, ETH_ALEN) == 0) {
             sender = station;
         }
     }
@@ -687,6 +687,7 @@ void on_listen_event(int fd, short what, void *wctx) {
         free(actx);
         return;
     }
+    
     actx->client_socket = accept_connection(actx->server_socket);
     if (actx->client_socket < 0) {
         w_logf(actx->wctx, LOG_ERR, LOG_PREFIX "Accept failed: %s\n", strerror(errno));

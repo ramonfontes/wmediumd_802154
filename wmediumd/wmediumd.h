@@ -49,9 +49,27 @@ enum {
 	MAC802154_HWSIM_ATTR_COOKIE,
 	MAC802154_HWSIM_ATTR_PAD,
 	MAC802154_HWSIM_ATTR_FRAME,
+	MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER,
 	__MAC802154_HWSIM_ATTR_MAX,
 };
 #define MAC802154_HWSIM_ATTR_MAX (__MAC802154_HWSIM_ATTR_MAX - 1)
+
+/* mac802154 hwsim edge netlink attributes
+ *
+ * @MAC802154_HWSIM_EDGE_ATTR_UNSPEC: unspecified attribute to catch error
+ * @MAC802154_HWSIM_EDGE_ATTR_ENDPOINT_ID: radio id where the edge points to
+ * @MAC802154_HWSIM_EDGE_ATTR_LQI: LQI value which the endpoint radio will
+ *	receive for this edge
+ * @__MAC802154_HWSIM_ATTR_MAX: enum limit
+ */
+enum {
+	MAC802154_HWSIM_EDGE_ATTR_UNSPEC,
+	MAC802154_HWSIM_EDGE_ATTR_ENDPOINT_ID,
+	MAC802154_HWSIM_EDGE_ATTR_LQI,
+	__MAC802154_HWSIM_EDGE_ATTR_MAX,
+};
+
+#define MAC802154_HWSIM_EDGE_ATTR_MAX (__MAC802154_HWSIM_EDGE_ATTR_MAX - 1)
 
 #define VERSION_NR 1
 
@@ -105,7 +123,7 @@ struct wqueue {
 
 struct station {
 	int index;
-	u8 addr[8];		/* virtual interface mac address */
+	u8 extended_src[64];		/* virtual interface mac address */
 	u8 hwaddr[8];		/* hardware address of hwsim radio */
 	double x, y, z;			/* position of the station [m] */
 	double dir_x, dir_y;		/* direction of the station [meter per MOVE_INTERVAL] */

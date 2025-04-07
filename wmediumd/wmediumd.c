@@ -158,37 +158,37 @@ void rearm_timer(struct wmediumd *ctx)
 
 static inline bool frame_has_a4(struct frame *frame)
 {
-	struct ieee80211_hdr *hdr = (void *)frame->data;
+	struct ieee802154_hdr *hdr = (void *)frame->data;
 
-	return (hdr->frame_control[1] & (FCTL_TODS | FCTL_FROMDS)) ==
-		(FCTL_TODS | FCTL_FROMDS);
+	//return (hdr->frame_control[1] & (FCTL_TODS | FCTL_FROMDS)) ==
+	//	(FCTL_TODS | FCTL_FROMDS);
 }
 
 static inline bool frame_is_mgmt(struct frame *frame)
 {
-	struct ieee80211_hdr *hdr = (void *)frame->data;
+	struct ieee802154_hdr *hdr = (void *)frame->data;
 
-	return (hdr->frame_control[0] & FCTL_FTYPE) == FTYPE_MGMT;
+	//return (hdr->frame_control[0] & FCTL_FTYPE) == FTYPE_MGMT;
 }
 
 static inline bool frame_is_data(struct frame *frame)
 {
-	struct ieee80211_hdr *hdr = (void *)frame->data;
+	struct ieee802154_hdr *hdr = (void *)frame->data;
 
-	return (hdr->frame_control[0] & FCTL_FTYPE) == FTYPE_DATA;
+	//return (hdr->frame_control[0] & FCTL_FTYPE) == FTYPE_DATA;
 }
 
 static inline bool frame_is_data_qos(struct frame *frame)
 {
-	struct ieee80211_hdr *hdr = (void *)frame->data;
+	struct ieee802154_hdr *hdr = (void *)frame->data;
 
-	return (hdr->frame_control[0] & (FCTL_FTYPE | STYPE_QOS_DATA)) ==
-		(FTYPE_DATA | STYPE_QOS_DATA);
+	//return (hdr->frame_control[0] & (FCTL_FTYPE | STYPE_QOS_DATA)) ==
+	//	(FTYPE_DATA | STYPE_QOS_DATA);
 }
 
 static inline u8 *frame_get_qos_ctl(struct frame *frame)
 {
-	struct ieee80211_hdr *hdr = (void *)frame->data;
+	struct ieee802154_hdr *hdr = (void *)frame->data;
 
 	if (frame_has_a4(frame))
 		return (u8 *)hdr + 30;
@@ -275,7 +275,7 @@ static struct station *get_station_by_addr(struct wmediumd *ctx, u8 *addr)
 	struct station *station;
 
 	list_for_each_entry(station, &ctx->stations, list) {
-		if (memcmp(station->addr, addr, ETH_ALEN) == 0)
+		if (memcmp(station->extended_src, addr, ETH_ALEN) == 0)
 			return station;
 	}
 	return NULL;
@@ -300,13 +300,13 @@ void detect_mediums(struct wmediumd *ctx, struct station *src, struct station *d
     }
     if (medium_id!=src->medium_id){
         w_logf(ctx, LOG_DEBUG, "Setting medium id of " MAC_FMT "(%d|%s) to %d.\n",
-               MAC_ARGS(src->addr), src->index, src->isap ? "AP" : "Sta",
+               MAC_ARGS(src->extended_src), src->index, src->isap ? "AP" : "Sta",
                medium_id);
         src-> medium_id = medium_id;
     }
     if(medium_id!=dest->medium_id){
         w_logf(ctx, LOG_DEBUG, "Setting medium id of " MAC_FMT "(%d|%s) to %d.\n",
-               MAC_ARGS(dest->addr), dest->index, dest->isap ? "AP" : "Sta",
+               MAC_ARGS(dest->extended_src), dest->index, dest->isap ? "AP" : "Sta",
                medium_id);
         dest-> medium_id = medium_id;
     }
@@ -314,8 +314,8 @@ void detect_mediums(struct wmediumd *ctx, struct station *src, struct station *d
 void queue_frame(struct wmediumd *ctx, struct station *station,
 		 struct frame *frame)
 {
-	struct ieee80211_hdr *hdr = (void *)frame->data;
-	u8 *dest = hdr->addr1;
+	struct ieee802154_hdr *hdr = (void *)frame->data;
+	u8 *dest = hdr->dest.extended_addr;
 	struct timespec now, target;
 	struct wqueue *queue;
 	struct frame *tail;
@@ -362,8 +362,8 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
 		deststa = get_station_by_addr(ctx, dest);
 		if (deststa) {
             w_logf(ctx, LOG_DEBUG, "Packet from " MAC_FMT "(%d|%s) to " MAC_FMT "(%d|%s)\n",
-                   MAC_ARGS(station->addr), station->index, station->isap ? "AP" : "Sta",
-                   MAC_ARGS(deststa->addr), deststa->index, deststa->isap ? "AP" : "Sta");
+                   MAC_ARGS(station->extended_src), station->index, station->isap ? "AP" : "Sta",
+                   MAC_ARGS(deststa->extended_src), deststa->index, deststa->isap ? "AP" : "Sta");
             detect_mediums(ctx,station,deststa);
 			snr = ctx->get_link_snr(ctx, station, deststa) -
 				get_signal_offset_by_interference(ctx,
@@ -435,10 +435,10 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
 	 * (or now, if none).
 	 */
 	target = now;
-    w_logf(ctx, LOG_DEBUG, "Sta " MAC_FMT " medium is #%d\n", MAC_ARGS(station->addr), station->medium_id);
+    w_logf(ctx, LOG_DEBUG, "Sta " MAC_FMT " medium is #%d\n", MAC_ARGS(station->extended_src), station->medium_id);
     list_for_each_entry(tmpsta, &ctx->stations, list) {
         if (station->medium_id == tmpsta->medium_id) {
-            w_logf(ctx, LOG_DEBUG, "Sta " MAC_FMT " medium is also #%d\n", MAC_ARGS(tmpsta->addr),
+            w_logf(ctx, LOG_DEBUG, "Sta " MAC_FMT " medium is also #%d\n", MAC_ARGS(tmpsta->extended_src),
                    tmpsta->medium_id);
             /*for (i = 0; i <= ac; i++) {
                 tail = list_last_entry_or_null(&tmpsta->queues[i].frames,
@@ -447,7 +447,7 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
                     target = tail->expires;
             }*/
         } else {
-            w_logf(ctx, LOG_DEBUG, "Sta " MAC_FMT " medium is not #%d, it is #%d\n", MAC_ARGS(tmpsta->addr),
+            w_logf(ctx, LOG_DEBUG, "Sta " MAC_FMT " medium is not #%d, it is #%d\n", MAC_ARGS(tmpsta->extended_src),
                    station->medium_id, tmpsta->medium_id);
         }
     }
@@ -483,7 +483,7 @@ static int send_tx_info_frame_nl(struct wmediumd *ctx, struct frame *frame)
 		goto out;
 	}
 
-	if (nla_put(msg, HWSIM_ATTR_ADDR_TRANSMITTER, ETH_ALEN,
+	if (nla_put(msg, MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER, ETH_ALEN,
 		    frame->sender->hwaddr) ||
 	    nla_put_u32(msg, HWSIM_ATTR_FLAGS, frame->flags) ||
 	    nla_put_u32(msg, HWSIM_ATTR_SIGNAL, frame->signal) ||
@@ -596,15 +596,15 @@ out:
 
 void deliver_frame(struct wmediumd *ctx, struct frame *frame)
 {
-	struct ieee80211_hdr *hdr = (void *) frame->data;
+	struct ieee802154_hdr *hdr = (void *) frame->data;
 	struct station *station;
-	u8 *dest = hdr->addr1;
-	u8 *src = frame->sender->addr;
+	u8 *dest = hdr->dest.extended_addr;
+	u8 *src = frame->sender->extended_src;
 
 	if (frame->flags & HWSIM_TX_STAT_ACK) {
 		/* rx the frame on the dest interface */
 		list_for_each_entry(station, &ctx->stations, list) {
-			if (memcmp(src, station->addr, ETH_ALEN) == 0)
+			if (memcmp(src, station->extended_src, ETH_ALEN) == 0)
 				continue;
             int rate_idx;
 			if (is_multicast_ether_addr(dest)) {
@@ -639,7 +639,7 @@ void deliver_frame(struct wmediumd *ctx, struct frame *frame)
 				if (drand48() <= error_prob) {
 					w_logf(ctx, LOG_INFO, "Dropped mcast from "
 						   MAC_FMT " to " MAC_FMT " at receiver\n",
-						   MAC_ARGS(src), MAC_ARGS(station->addr));
+						   MAC_ARGS(src), MAC_ARGS(station->extended_src));
 					continue;
 				}
 
@@ -648,7 +648,7 @@ void deliver_frame(struct wmediumd *ctx, struct frame *frame)
 						      frame->data_len,
 						      rate_idx, signal,
 						      frame->freq);
-			} else if (memcmp(dest, station->addr, ETH_ALEN) == 0) {
+			} else if (memcmp(dest, station->extended_src, ETH_ALEN) == 0) {
 				if (set_interference_duration(ctx,
 					frame->sender->index, frame->duration,
 					frame->signal))
@@ -756,7 +756,7 @@ static int process_recvd_data(struct wmediumd *ctx, struct nlmsghdr *nlh)
 
 	struct station *sender;
 	struct frame *frame;
-	struct ieee80211_hdr *hdr;
+	struct ieee802154_hdr *hdr;
 	u8 *src;
 	
 	if (gnlh->cmd == MAC802154_HWSIM_CMD_FRAME) {
@@ -766,29 +766,29 @@ static int process_recvd_data(struct wmediumd *ctx, struct nlmsghdr *nlh)
 		/* we get the attributes*/
 		genlmsg_parse(nlh, 0, attrs, MAC802154_HWSIM_ATTR_MAX, NULL);
 
-		/*if (attrs[HWSIM_ATTR_ADDR_TRANSMITTER]) {
-			u8 *hwaddr = (u8 *)nla_data(attrs[HWSIM_ATTR_ADDR_TRANSMITTER]);
+		if (attrs[MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER]) {
+			u8 *hwaddr = (u8 *)nla_data(attrs[MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER]);
 
 			unsigned int data_len =
-				nla_len(attrs[HWSIM_ATTR_FRAME]);
-			char *data = (char *)nla_data(attrs[HWSIM_ATTR_FRAME]);
-			unsigned int flags =
-				nla_get_u32(attrs[HWSIM_ATTR_FLAGS]);
-			unsigned int tx_rates_len =
-				nla_len(attrs[HWSIM_ATTR_TX_INFO]);
-			struct hwsim_tx_rate *tx_rates =
-				(struct hwsim_tx_rate *)
-				nla_data(attrs[HWSIM_ATTR_TX_INFO]);
+				nla_len(attrs[MAC802154_HWSIM_ATTR_FRAME]);
+			char *data = (char *)nla_data(attrs[MAC802154_HWSIM_ATTR_FRAME]);
+			//unsigned int flags =
+			//	nla_get_u32(attrs[HWSIM_ATTR_FLAGS]);
+			//unsigned int tx_rates_len =
+			//	nla_len(attrs[HWSIM_ATTR_TX_INFO]);
+			//struct hwsim_tx_rate *tx_rates =
+			//	(struct hwsim_tx_rate *)
+			//	nla_data(attrs[HWSIM_ATTR_TX_INFO]);
 			u64 cookie = nla_get_u64(attrs[MAC802154_HWSIM_ATTR_COOKIE]);
 			u32 freq;
-			freq = attrs[HWSIM_ATTR_FREQ] ?
-					nla_get_u32(attrs[HWSIM_ATTR_FREQ]) : 2412;
+			//freq = attrs[HWSIM_ATTR_FREQ] ?
+			//		nla_get_u32(attrs[HWSIM_ATTR_FREQ]) : 2412;
 
-			hdr = (struct ieee80211_hdr *)data;
-			src = hdr->addr2;
+			hdr = (struct ieee802154_hdr *)data;
+			src = hdr->source.extended_addr;
 			
-			w_logf(ctx, LOG_DEBUG, "f: %02x%02x d: %02x%02x ",
-					(u32)hdr->frame_control[0], (u32)hdr->frame_control[1], (u32)hdr->duration_id[0], (u32)hdr->duration_id[1]);
+			//w_logf(ctx, LOG_DEBUG, "f: %02x%02x d: %02x%02x ",
+			//		(u32)hdr->frame_control[0], (u32)hdr->frame_control[1], (u32)hdr->duration_id[0], (u32)hdr->duration_id[1]);
 			
 			if (data_len < 6 + 6 + 4)
 				goto out;
@@ -806,22 +806,21 @@ static int process_recvd_data(struct wmediumd *ctx, struct nlmsghdr *nlh)
 
 			memcpy(frame->data, data, data_len);
 			frame->data_len = data_len;
-			frame->flags = flags;
+			//frame->flags = flags;
 			frame->cookie = cookie;
 			frame->freq = freq;
 			frame->sender = sender;
 			sender->freq = freq;
-			frame->tx_rates_count =
-				tx_rates_len / sizeof(struct hwsim_tx_rate);
-			memcpy(frame->tx_rates, tx_rates,
-			       min(tx_rates_len, sizeof(frame->tx_rates)));
+			//frame->tx_rates_count =
+			//	tx_rates_len / sizeof(struct hwsim_tx_rate);
+			//memcpy(frame->tx_rates, tx_rates,
+			  //     min(tx_rates_len, sizeof(frame->tx_rates)));
 
-			w_logf(ctx, LOG_DEBUG, "a1: " MAC_FMT " a2: " MAC_FMT " a3: " MAC_FMT " sq: %02x%02x r: " MAC_FMT" len: %d cookie: %lld\n", 
-					MAC_ARGS(hdr->addr1), MAC_ARGS(hdr->addr2), MAC_ARGS(hdr->addr3), (u32)hdr->seq_ctrl[0], (u32)hdr->seq_ctrl[1], 
-					MAC_ARGS(frame->sender->hwaddr), data_len, cookie);
+			//w_logf(ctx, LOG_DEBUG, "a1: " MAC_FMT" len: %d cookie: %lld\n", 
+			//		MAC_ARGS(hdr->source.extended_addr), MAC_ARGS(frame->sender->hwaddr), data_len, cookie);
 			
 			queue_frame(ctx, sender, frame);
-		}*/
+		}
 out:
 		pthread_rwlock_unlock(&snr_lock);
 		return 0;
@@ -849,11 +848,11 @@ struct frame* construct_tx_info_frame(struct wmediumd *ctx, struct nlmsghdr *nlh
 
 	struct station *sender;
 	struct frame *frame = NULL;
-	struct ieee80211_hdr *hdr;
+	struct ieee802154_hdr *hdr;
 
 	/*if (gnlh->cmd == MAC802154_HWSIM_CMD_FRAME){
 		genlmsg_parse(nlh, 0, attrs, HWSIM_ATTR_MAX, NULL);
-		u8 *hwaddr = (u8 *)nla_data(attrs[HWSIM_ATTR_ADDR_TRANSMITTER]);
+		u8 *hwaddr = (u8 *)nla_data(attrs[MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER]);
 		u64 cookie = nla_get_u64(attrs[MAC802154_HWSIM_ATTR_COOKIE]);
 		char *data = (char *)nla_data(attrs[MAC802154_HWSIM_ATTR_FRAME]);
 

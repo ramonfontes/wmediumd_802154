@@ -21,6 +21,14 @@
  *	02110-1301, USA.
  */
 
+#include <linux/types.h>
+#include <stdint.h>
+
+typedef uint8_t u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
+
 #ifndef IEEE802154_H_
 #define IEEE802154_H_
 
@@ -43,14 +51,65 @@
 
 #define QOS_CTL_TAG1D_MASK	0x07
 
-struct ieee80211_hdr {
-	unsigned char frame_control[2];
-	unsigned char duration_id[2];
-	unsigned char addr1[ETH_ALEN];
-	unsigned char addr2[ETH_ALEN];
-	unsigned char addr3[ETH_ALEN];
-	unsigned char seq_ctrl[2];
-	unsigned char addr4[ETH_ALEN];
+struct ieee802154_sechdr {
+#if defined(__LITTLE_ENDIAN_BITFIELD)
+	u8 level:3,
+	   key_id_mode:2,
+	   reserved:3;
+#elif defined(__BIG_ENDIAN_BITFIELD)
+	u8 reserved:3,
+	   key_id_mode:2,
+	   level:3;
+#endif
+	u8 key_id;
+	__le32 frame_counter;
+	union {
+		__le32 short_src;
+		__le64 extended_src;
+	};
+};
+
+
+struct ieee802154_addr {
+	u8 mode;
+	__le16 pan_id;
+	union {
+		__le16 short_addr;
+		__le64 extended_addr;
+	};
+};
+
+struct ieee802154_hdr_fc {
+#if defined(__LITTLE_ENDIAN_BITFIELD)
+	u16 type:3,
+	    security_enabled:1,
+	    frame_pending:1,
+	    ack_request:1,
+	    intra_pan:1,
+	    reserved:3,
+	    dest_addr_mode:2,
+	    version:2,
+	    source_addr_mode:2;
+#elif defined(__BIG_ENDIAN_BITFIELD)
+	u16 reserved:1,
+	    intra_pan:1,
+	    ack_request:1,
+	    frame_pending:1,
+	    security_enabled:1,
+	    type:3,
+	    source_addr_mode:2,
+	    version:2,
+	    dest_addr_mode:2,
+	    reserved2:2;
+#endif
+};
+
+struct ieee802154_hdr {
+	struct ieee802154_hdr_fc fc;
+	unsigned char seq;
+	struct ieee802154_addr source;
+	struct ieee802154_addr dest;
+	struct ieee802154_sechdr sec;
 };
 
 #endif /* IEEE802154_H_ */

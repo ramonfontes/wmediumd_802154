@@ -462,6 +462,10 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 		goto nla_put_failure;
 	}
 
+	if (nla_put(skb, MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER,
+		    ETH_ALEN, hw->perm_extended_addr))
+		goto nla_put_failure;
+
 	/* We get the skb->data */
 	if (nla_put(skb, MAC802154_HWSIM_ATTR_FRAME, my_skb->len, my_skb->data))
 		goto nla_put_failure;
