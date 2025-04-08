@@ -88,6 +88,13 @@ static void wqueue_init(struct wqueue *wqueue, int cw_min, int cw_max)
 	wqueue->cw_max = cw_max;
 }
 
+void station_init_queues(struct station *station)
+{
+	wqueue_init(&station->queues[IEEE80211_AC_BK], 15, 1023);
+	wqueue_init(&station->queues[IEEE80211_AC_BE], 15, 1023);
+	wqueue_init(&station->queues[IEEE80211_AC_VI], 7, 15);
+	wqueue_init(&station->queues[IEEE80211_AC_VO], 3, 7);
+}
 
 bool timespec_before(struct timespec *t1, struct timespec *t2)
 {
@@ -275,7 +282,7 @@ static struct station *get_station_by_addr(struct wmediumd *ctx, u8 *addr)
 	struct station *station;
 
 	list_for_each_entry(station, &ctx->stations, list) {
-		if (memcmp(station->extended_src, addr, ETH_ALEN) == 0)
+		if (memcmp(station->extended_src, addr, EXTENDED_ADDR_LEN) == 0)
 			return station;
 	}
 	return NULL;
@@ -311,11 +318,31 @@ void detect_mediums(struct wmediumd *ctx, struct station *src, struct station *d
         dest-> medium_id = medium_id;
     }
 }
+
+static enum ieee80211_ac_number frame_select_queue_80211(struct frame *frame)
+{
+	u8 *p;
+	int priority;
+
+	if (!frame_is_data(frame))
+		return IEEE80211_AC_VO;
+
+	if (!frame_is_data_qos(frame))
+		return IEEE80211_AC_BE;
+
+	p = frame_get_qos_ctl(frame);
+	priority = *p & QOS_CTL_TAG1D_MASK;
+
+	return ieee802_1d_to_ac[priority];
+}
+
+
 void queue_frame(struct wmediumd *ctx, struct station *station,
-		 struct frame *frame)
+		 struct frame *frame, char *data)
 {
 	struct ieee802154_hdr *hdr = (void *)frame->data;
-	u8 *dest = hdr->dest.extended_addr;
+	//u8 *dest = hdr->dest.extended_addr;
+	uint8_t dest[8];
 	struct timespec now, target;
 	struct wqueue *queue;
 	struct frame *tail;
@@ -327,6 +354,7 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
 	bool noack = false;
 	int i, j;
 	int rate_idx;
+	int ac;
 
 	/* TODO configure phy parameters */
 	int slot_time = 9;
@@ -346,16 +374,53 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
 	 * or contention, and add backoff time accordingly.  To that, we
 	 * add the expiration time of the previous frame in the queue.
 	 */
+	
+	ac = frame_select_queue_80211(frame);
+	queue = &station->queues[0];
 
-	//ac = frame_select_queue_80211(frame);
-	//queue = &station->queues[ac];
+	//memcpy(hdr->dest.extended_addr, dest, 8);
 
 	/* try to "send" this frame at each of the rates in the rateset */
 	send_time = 0;
-	cw = queue->cw_min;
+	//cw = queue->cw_min;
+
+	uint8_t *ptr = data;
+
+	uint16_t fcf = ptr[0] | (ptr[1] << 8);
+	ptr += 2;
+
+	uint8_t seq = *ptr++;
+	(void)seq;
+
+	uint8_t dest_mode = (fcf >> 10) & 0x3;
+	uint8_t src_mode = (fcf >> 14) & 0x3;
+
+	// PAN ID Compression bit
+	bool panid_compression = fcf & (1 << 6);
+
+	if (dest_mode) {
+		uint16_t dest_pan = ptr[0] | (ptr[1] << 8);
+		ptr += 2;
+
+		if (dest_mode == 2) {
+			// Short Addr (16 bits)
+			uint16_t dest_short = ptr[0] | (ptr[1] << 8);
+			ptr += 2;
+
+			w_logf(ctx, LOG_ERR, "Dest (short): %04x, PAN ID: %04x\n", dest_short, dest_pan);
+		} else if (dest_mode == 3) {
+			for (int i = 0; i < 8; i++)
+				dest[i] = ptr[7 - i];  // Reverse bytes
+			ptr += 8;
+
+			w_logf(ctx, LOG_ERR, "Dest (extended): %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x, PAN ID: %04x\n",
+				dest[7], dest[6], dest[5], dest[4],
+				dest[3], dest[2], dest[1], dest[0], dest_pan);
+		}
+	}
 
 	int snr = SNR_DEFAULT;
-
+	
 	if (is_multicast_ether_addr(dest)) {
 		deststa = NULL;
 	} else {
@@ -372,54 +437,14 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
 		}
 	}
 	frame->signal = snr + NOISE_LEVEL;
-
+	
 	noack = frame_is_mgmt(frame) || is_multicast_ether_addr(dest);
 	double choice = -3.14;
 
 	if (use_fixed_random_value(ctx))
 		choice = drand48();
 
-	for (i = 0; i < frame->tx_rates_count && !is_acked; i++) {
-
-		rate_idx = frame->tx_rates[i].idx;
-
-		/* no more rates in MRR */
-		if (rate_idx < 0)
-			break;
-
-		error_prob = ctx->get_error_prob(ctx, snr, rate_idx,
-						 frame->freq, frame->data_len,
-						 station, deststa);
-
-		for (j = 0; j < frame->tx_rates[i].count; j++) {
-			send_time += difs + pkt_duration(ctx, frame->data_len,
-				index_to_rate(rate_idx, frame->freq));
-
-			retries++;
-
-			/* skip ack/backoff/retries for noack frames */
-			if (noack) {
-				is_acked = true;
-				break;
-			}
-
-			/* TODO TXOPs */
-
-			/* backoff */
-			if (j > 0) {
-				send_time += (cw * slot_time) / 2;
-				cw = (cw << 1) + 1;
-				if (cw > queue->cw_max)
-					cw = queue->cw_max;
-			}
-			if (!use_fixed_random_value(ctx))
-				choice = drand48();
-			if (choice > error_prob) {
-				is_acked = true;
-				break;
-			}
-			send_time += ack_time_usec;
-		}
+	/*for (i = 0; i < frame->tx_rates_count && !is_acked; i++) {
 	}
 	if (is_acked) {
 		frame->tx_rates[i-1].count = j + 1;
@@ -427,25 +452,27 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
 			frame->tx_rates[i].idx = -1;
 			frame->tx_rates[i].count = -1;
 		}
-		frame->flags |= HWSIM_TX_STAT_ACK;
-	}
+		//frame->flags |= HWSIM_TX_STAT_ACK;
+	}*/
 
 	/*
 	 * delivery time starts after any equal or higher prio frame
 	 * (or now, if none).
 	 */
+	
 	target = now;
-    w_logf(ctx, LOG_DEBUG, "Sta " MAC_FMT " medium is #%d\n", MAC_ARGS(station->extended_src), station->medium_id);
+    w_logf(ctx, LOG_ERR, "Sta " MAC_FMT " medium is #%d\n", MAC_ARGS(station->extended_src), station->medium_id);
     list_for_each_entry(tmpsta, &ctx->stations, list) {
+	
         if (station->medium_id == tmpsta->medium_id) {
             w_logf(ctx, LOG_DEBUG, "Sta " MAC_FMT " medium is also #%d\n", MAC_ARGS(tmpsta->extended_src),
                    tmpsta->medium_id);
-            /*for (i = 0; i <= ac; i++) {
-                tail = list_last_entry_or_null(&tmpsta->queues[i].frames,
+            for (i = 0; i <= ac; i++) {
+		        tail = list_last_entry_or_null(&tmpsta->queues[i].frames,
                                                struct frame, list);
                 if (tail && timespec_before(&target, &tail->expires))
                     target = tail->expires;
-            }*/
+            }
         } else {
             w_logf(ctx, LOG_DEBUG, "Sta " MAC_FMT " medium is not #%d, it is #%d\n", MAC_ARGS(tmpsta->extended_src),
                    station->medium_id, tmpsta->medium_id);
@@ -456,6 +483,7 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
 
 	frame->duration = send_time;
 	frame->expires = target;
+	
 	list_add_tail(&frame->list, &queue->frames);
 	rearm_timer(ctx);
 }
@@ -468,7 +496,7 @@ static int send_tx_info_frame_nl(struct wmediumd *ctx, struct frame *frame)
 	struct nl_sock *sock = ctx->sock;
 	struct nl_msg *msg;
 	int ret;
-	/*
+	
 	msg = nlmsg_alloc();
 	if (!msg) {
 		w_logf(ctx, LOG_ERR, "Error allocating new message MSG!\n");
@@ -476,20 +504,20 @@ static int send_tx_info_frame_nl(struct wmediumd *ctx, struct frame *frame)
 	}
 
 	if (genlmsg_put(msg, NL_AUTO_PID, NL_AUTO_SEQ, ctx->family_id,
-			0, NLM_F_REQUEST, HWSIM_CMD_TX_INFO_FRAME,
+			0, NLM_F_REQUEST, MAC802154_HWSIM_CMD_TX_INFO_FRAME,
 			VERSION_NR) == NULL) {
 		w_logf(ctx, LOG_ERR, "%s: genlmsg_put failed\n", __func__);
 		ret = -1;
 		goto out;
 	}
 
-	if (nla_put(msg, MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER, ETH_ALEN,
+	if (nla_put(msg, MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER, EXTENDED_ADDR_LEN,
 		    frame->sender->hwaddr) ||
-	    nla_put_u32(msg, HWSIM_ATTR_FLAGS, frame->flags) ||
-	    nla_put_u32(msg, HWSIM_ATTR_SIGNAL, frame->signal) ||
-	    nla_put(msg, HWSIM_ATTR_TX_INFO,
-		    frame->tx_rates_count * sizeof(struct hwsim_tx_rate),
-		    frame->tx_rates) ||
+	    //nla_put_u32(msg, HWSIM_ATTR_FLAGS, frame->flags) ||
+	    //nla_put_u32(msg, HWSIM_ATTR_SIGNAL, frame->signal) ||
+	    //nla_put(msg, HWSIM_ATTR_TX_INFO,
+		    //frame->tx_rates_count * sizeof(struct hwsim_tx_rate),
+		    //frame->tx_rates) ||
 	    nla_put_u64(msg, MAC802154_HWSIM_ATTR_COOKIE, frame->cookie)) {
 			w_logf(ctx, LOG_ERR, "%s: Failed to fill a payload\n", __func__);
 			ret = -1;
@@ -501,7 +529,7 @@ static int send_tx_info_frame_nl(struct wmediumd *ctx, struct frame *frame)
 		w_logf(ctx, LOG_ERR, "%s: nl_send_auto failed\n", __func__);
 		ret = -1;
 		goto out;
-	}*/
+	}
 	ret = 0;
 
 out:
@@ -551,7 +579,7 @@ int send_cloned_frame_msg(struct wmediumd *ctx, struct station *dst,
 	struct nl_msg *msg;
 	struct nl_sock *sock = ctx->sock;
 	int ret;
-	/*
+	
 	msg = nlmsg_alloc();
 	if (!msg) {
 		w_logf(ctx, LOG_ERR, "Error allocating new message MSG!\n");
@@ -566,19 +594,16 @@ int send_cloned_frame_msg(struct wmediumd *ctx, struct station *dst,
 		goto out;
 	}
 
-	if (nla_put(msg, HWSIM_ATTR_ADDR_RECEIVER, ETH_ALEN,
+	if (nla_put(msg, MAC802154_HWSIM_ATTR_ADDR_RECEIVER, EXTENDED_ADDR_LEN,
 		    dst->hwaddr) ||
-	    nla_put(msg, MAC802154_HWSIM_ATTR_FRAME, data_len, data) ||
-	    nla_put_u32(msg, HWSIM_ATTR_RX_RATE, rate_idx) ||
-	    nla_put_u32(msg, HWSIM_ATTR_FREQ, freq) ||
-	    nla_put_u32(msg, HWSIM_ATTR_SIGNAL, signal)) {
+	    nla_put(msg, MAC802154_HWSIM_ATTR_FRAME, data_len, data)) {
 			w_logf(ctx, LOG_ERR, "%s: Failed to fill a payload\n", __func__);
 			ret = -1;
 			goto out;
 	}
 
-	w_logf(ctx, LOG_DEBUG, "cloned msg dest " MAC_FMT " (radio: " MAC_FMT ") len %d\n",
-		   MAC_ARGS(dst->addr), MAC_ARGS(dst->hwaddr), data_len);
+	//w_logf(ctx, LOG_DEBUG, "cloned msg dest " MAC_FMT " (radio: " MAC_FMT ") len %d\n",
+	//	   MAC_ARGS(dst->addr), MAC_ARGS(dst->hwaddr), data_len);
 
 	ret = nl_send_auto_complete(sock, msg);
 	if (ret < 0) {
@@ -586,7 +611,7 @@ int send_cloned_frame_msg(struct wmediumd *ctx, struct station *dst,
 		ret = -1;
 		goto out;
 	}
-	*/
+
 	ret = 0;
 
 out:
@@ -604,7 +629,7 @@ void deliver_frame(struct wmediumd *ctx, struct frame *frame)
 	if (frame->flags & HWSIM_TX_STAT_ACK) {
 		/* rx the frame on the dest interface */
 		list_for_each_entry(station, &ctx->stations, list) {
-			if (memcmp(src, station->extended_src, ETH_ALEN) == 0)
+			if (memcmp(src, station->extended_src, EXTENDED_ADDR_LEN) == 0)
 				continue;
             int rate_idx;
 			if (is_multicast_ether_addr(dest)) {
@@ -648,7 +673,7 @@ void deliver_frame(struct wmediumd *ctx, struct frame *frame)
 						      frame->data_len,
 						      rate_idx, signal,
 						      frame->freq);
-			} else if (memcmp(dest, station->extended_src, ETH_ALEN) == 0) {
+			} else if (memcmp(dest, station->extended_src, EXTENDED_ADDR_LEN) == 0) {
 				if (set_interference_duration(ctx,
 					frame->sender->index, frame->duration,
 					frame->signal))
@@ -690,6 +715,7 @@ void deliver_expired_frames(struct wmediumd *ctx)
 {
 	struct timespec now, _diff;
 	struct station *station;
+	
 	struct list_head *l,*rand_it,*rand_start;
     int i, j, duration;
     int sta1_medium_id;
@@ -757,39 +783,65 @@ static int process_recvd_data(struct wmediumd *ctx, struct nlmsghdr *nlh)
 	struct station *sender;
 	struct frame *frame;
 	struct ieee802154_hdr *hdr;
-	u8 *src;
+	uint8_t src[8];
 	
-	if (gnlh->cmd == MAC802154_HWSIM_CMD_FRAME) {
-		w_logf(ctx, LOG_ERR, "CMD detected!\n");
-    
+	if (gnlh->cmd == MAC802154_HWSIM_CMD_FRAME) {    
 		pthread_rwlock_rdlock(&snr_lock);
 		/* we get the attributes*/
 		genlmsg_parse(nlh, 0, attrs, MAC802154_HWSIM_ATTR_MAX, NULL);
 
 		if (attrs[MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER]) {
+    
 			u8 *hwaddr = (u8 *)nla_data(attrs[MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER]);
 
 			unsigned int data_len =
 				nla_len(attrs[MAC802154_HWSIM_ATTR_FRAME]);
 			char *data = (char *)nla_data(attrs[MAC802154_HWSIM_ATTR_FRAME]);
-			//unsigned int flags =
-			//	nla_get_u32(attrs[HWSIM_ATTR_FLAGS]);
-			//unsigned int tx_rates_len =
-			//	nla_len(attrs[HWSIM_ATTR_TX_INFO]);
-			//struct hwsim_tx_rate *tx_rates =
-			//	(struct hwsim_tx_rate *)
-			//	nla_data(attrs[HWSIM_ATTR_TX_INFO]);
+			
 			u64 cookie = nla_get_u64(attrs[MAC802154_HWSIM_ATTR_COOKIE]);
-			u32 freq;
+			//u32 freq;
 			//freq = attrs[HWSIM_ATTR_FREQ] ?
 			//		nla_get_u32(attrs[HWSIM_ATTR_FREQ]) : 2412;
 
-			hdr = (struct ieee802154_hdr *)data;
-			src = hdr->source.extended_addr;
+			uint8_t *ptr = data;
+
+			// Get FCF
+			uint16_t fcf = ptr[0] | (ptr[1] << 8);
+			ptr += 2;
+
+			uint8_t seq = *ptr++;
+			(void)seq;
+
+			// Search for the modes
+			uint8_t dest_mode = (fcf >> 10) & 0x3;
+			uint8_t src_mode = (fcf >> 14) & 0x3;
+
+			// PAN ID Compression bit
+			bool panid_compression = fcf & (1 << 6);
+
+			if (dest_mode) {
+				ptr += 2; // Dest PAN ID
+				ptr += (dest_mode == 2) ? 2 : 8; // Short ou Extended
+			}
+
+			// If panid_compression is false, read source PAN ID
+			if (src_mode) {
+				if (!panid_compression) {
+					ptr += 2; // Src PAN ID
+				}
+				if (src_mode == 2) {
+					// Short address
+				} else if (src_mode == 3) {
+					for (int i = 0; i < 8; i++)
+						src[i] = ptr[7 - i];  // Reverse
+					ptr += 8;
+
+					w_logf(ctx, LOG_DEBUG, "Source (extended): %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n",
+						src[7], src[6], src[5], src[4], src[3], src[2], src[1], src[0]);
+				}
+			}
 			
-			//w_logf(ctx, LOG_DEBUG, "f: %02x%02x d: %02x%02x ",
-			//		(u32)hdr->frame_control[0], (u32)hdr->frame_control[1], (u32)hdr->duration_id[0], (u32)hdr->duration_id[1]);
-			
+
 			if (data_len < 6 + 6 + 4)
 				goto out;
 
@@ -798,7 +850,7 @@ static int process_recvd_data(struct wmediumd *ctx, struct nlmsghdr *nlh)
 				w_flogf(ctx, LOG_ERR, stderr, "Unable to find sender station " MAC_FMT "\n", MAC_ARGS(src));
 				goto out;
 			}
-			memcpy(sender->hwaddr, hwaddr, ETH_ALEN);
+			memcpy(sender->hwaddr, hwaddr, EXTENDED_ADDR_LEN);
 
 			frame = malloc(sizeof(*frame) + data_len);
 			if (!frame)
@@ -808,9 +860,9 @@ static int process_recvd_data(struct wmediumd *ctx, struct nlmsghdr *nlh)
 			frame->data_len = data_len;
 			//frame->flags = flags;
 			frame->cookie = cookie;
-			frame->freq = freq;
+			//frame->freq = freq;
 			frame->sender = sender;
-			sender->freq = freq;
+			//sender->freq = freq;
 			//frame->tx_rates_count =
 			//	tx_rates_len / sizeof(struct hwsim_tx_rate);
 			//memcpy(frame->tx_rates, tx_rates,
@@ -819,7 +871,7 @@ static int process_recvd_data(struct wmediumd *ctx, struct nlmsghdr *nlh)
 			//w_logf(ctx, LOG_DEBUG, "a1: " MAC_FMT" len: %d cookie: %lld\n", 
 			//		MAC_ARGS(hdr->source.extended_addr), MAC_ARGS(frame->sender->hwaddr), data_len, cookie);
 			
-			queue_frame(ctx, sender, frame);
+			queue_frame(ctx, sender, frame, data);
 		}
 out:
 		pthread_rwlock_unlock(&snr_lock);
@@ -849,6 +901,9 @@ struct frame* construct_tx_info_frame(struct wmediumd *ctx, struct nlmsghdr *nlh
 	struct station *sender;
 	struct frame *frame = NULL;
 	struct ieee802154_hdr *hdr;
+			w_logf(ctx, LOG_ERR, "ssssdfsdfsdfsfsssssssssError allocating new message M111111111SG!\n");
+
+
 
 	/*if (gnlh->cmd == MAC802154_HWSIM_CMD_FRAME){
 		genlmsg_parse(nlh, 0, attrs, HWSIM_ATTR_MAX, NULL);
@@ -863,7 +918,7 @@ struct frame* construct_tx_info_frame(struct wmediumd *ctx, struct nlmsghdr *nlh
 			w_flogf(ctx, LOG_ERR, stderr, "%s: Unable to find sender station " MAC_FMT "\n", __FUNCTION__, MAC_ARGS(hdr->addr2));
 			goto out;
 		}
-		memcpy(sender->hwaddr, hwaddr, ETH_ALEN);
+		memcpy(sender->hwaddr, hwaddr, EXTENDED_ADDR_LEN);
 		
 		frame = malloc(sizeof(struct frame));
 		if (!frame)

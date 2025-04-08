@@ -80,7 +80,6 @@ struct ieee802154_addr {
 };
 
 struct ieee802154_hdr_fc {
-#if defined(__LITTLE_ENDIAN_BITFIELD)
 	u16 type:3,
 	    security_enabled:1,
 	    frame_pending:1,
@@ -90,18 +89,24 @@ struct ieee802154_hdr_fc {
 	    dest_addr_mode:2,
 	    version:2,
 	    source_addr_mode:2;
-#elif defined(__BIG_ENDIAN_BITFIELD)
-	u16 reserved:1,
-	    intra_pan:1,
-	    ack_request:1,
-	    frame_pending:1,
-	    security_enabled:1,
-	    type:3,
-	    source_addr_mode:2,
-	    version:2,
-	    dest_addr_mode:2,
-	    reserved2:2;
-#endif
+};
+
+enum ieee80211_ac_number {
+	IEEE80211_AC_VO		= 0,
+	IEEE80211_AC_VI		= 1,
+	IEEE80211_AC_BE		= 2,
+	IEEE80211_AC_BK		= 3,
+};
+
+static const enum ieee80211_ac_number ieee802_1d_to_ac[8] = {
+	IEEE80211_AC_BE,
+	IEEE80211_AC_BK,
+	IEEE80211_AC_BK,
+	IEEE80211_AC_BE,
+	IEEE80211_AC_VI,
+	IEEE80211_AC_VI,
+	IEEE80211_AC_VO,
+	IEEE80211_AC_VO
 };
 
 struct ieee802154_hdr {

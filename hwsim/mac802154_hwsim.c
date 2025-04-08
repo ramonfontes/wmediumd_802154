@@ -308,29 +308,28 @@ static int hwsim_unicast_netgroup(struct hwsim_phy *data,
 static int hwsim_cloned_frame_received_nl(struct sk_buff *skb_2,
 					  struct genl_info *info)
 {
-	/*struct mac80211_hwsim_data *data2;
-	struct ieee80211_rx_status rx_status;
-	struct ieee80211_hdr *hdr;
+	printk("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n");
+	struct hwsim_phy *data2;
+	//struct ieee80211_rx_status rx_status;
+	struct ieee802154_hdr *hdr;
 	const u8 *dst;
 	int frame_data_len;
 	void *frame_data;
 	struct sk_buff *skb = NULL;
-	struct ieee80211_channel *channel = NULL;
+	//struct ieee80211_channel *channel = NULL;
 
-	if (!info->attrs[HWSIM_ATTR_ADDR_RECEIVER] ||
-	    !info->attrs[HWSIM_ATTR_FRAME] ||
-	    !info->attrs[HWSIM_ATTR_RX_RATE] ||
-	    !info->attrs[HWSIM_ATTR_SIGNAL])
+	if (!info->attrs[MAC802154_HWSIM_ATTR_ADDR_RECEIVER] ||
+	    !info->attrs[MAC802154_HWSIM_ATTR_FRAME])
 		goto out;
 
-	dst = (void *)nla_data(info->attrs[HWSIM_ATTR_ADDR_RECEIVER]);
-	frame_data_len = nla_len(info->attrs[HWSIM_ATTR_FRAME]);
-	frame_data = (void *)nla_data(info->attrs[HWSIM_ATTR_FRAME]);
-
+	/*dst = (void *)nla_data(info->attrs[MAC802154_HWSIM_ATTR_ADDR_RECEIVER]);
+	frame_data_len = nla_len(info->attrs[MAC802154_HWSIM_ATTR_FRAME]);
+	frame_data = (void *)nla_data(info->attrs[MAC802154_HWSIM_ATTR_FRAME]);*/
+	/*
 	if (frame_data_len < sizeof(struct ieee80211_hdr_3addr) ||
 	    frame_data_len > IEEE80211_MAX_DATA_LEN)
 		goto err;
-
+	
 	/* Allocate new skb here */
 	/*skb = alloc_skb(frame_data_len, GFP_KERNEL);
 	if (skb == NULL)
@@ -411,16 +410,13 @@ static int hwsim_cloned_frame_received_nl(struct sk_buff *skb_2,
 		rx_status.boottime_ns = ktime_get_boottime_ns();
 
 	mac80211_hwsim_rx(data2, &rx_status, skb);
-
+	*/
 	return 0;
 err:
-	pr_debug("mac80211_hwsim: error occurred in %s\n", __func__);
+	pr_debug("mac802154_hwsim: error occurred in %s\n", __func__);
 out:
 	dev_kfree_skb(skb);
-	return -EINVAL;*/
-
-	//adicionei dps - precisa remover
-	return 0;
+	return -EINVAL;
 }
 
 static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff *my_skb,
@@ -429,12 +425,14 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 	struct sk_buff *skb;
 	struct hwsim_phy *phy = hw->priv;
 	//struct hwsim_pib *pib;
-	struct ieee802154_hdr *hdr = (struct ieee802154_hdr *) my_skb->data;
+	struct ieee802154_hdr hdr;
 	void *msg_head;
 	uintptr_t cookie;
 	
 	//rcu_read_lock();
 	//pib = rcu_dereference(phy->pib);
+
+	//memcpy(&hdr, skb->data, 3);
 	
 	if (!pskb_may_pull(my_skb, 3)) {
 		dev_dbg(hw->parent, "invalid frame\n");
@@ -452,6 +450,7 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 	}
 
 	skb = genlmsg_new(GENLMSG_DEFAULT_SIZE, GFP_ATOMIC);
+
 	if (skb == NULL)
 		goto nla_put_failure;
 
@@ -462,9 +461,12 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 		goto nla_put_failure;
 	}
 
+	u8 addr_buf[8];
+	put_unaligned_le64(hw->phy->perm_extended_addr, addr_buf);
 	if (nla_put(skb, MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER,
-		    ETH_ALEN, hw->perm_extended_addr))
+		    8, addr_buf))
 		goto nla_put_failure;
+	//verificar o 8 acima
 
 	/* We get the skb->data */
 	if (nla_put(skb, MAC802154_HWSIM_ATTR_FRAME, my_skb->len, my_skb->data))
@@ -495,6 +497,9 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 
 	//ieee802154_rx_irqsafe(hw, skb, lqi);
 
+	print_hex_dump(KERN_INFO, "Frame: ", DUMP_PREFIX_OFFSET, 16, 1, skb->data, skb->len, true);
+	print_hex_dump(KERN_INFO, "Atributo FRAME: ", DUMP_PREFIX_OFFSET, 16, 1, my_skb->data, my_skb->len, true);
+
 	return;
 
 drop:
@@ -522,7 +527,7 @@ static void hwsim_hw_receive(struct ieee802154_hw *hw, struct sk_buff *skb,
 		dev_dbg(hw->parent, "invalid frame\n");
 		goto drop;
 	}
-
+		
 	memcpy(&hdr, skb->data, 3);
 
 	/* Level 4 filtering: Frame fields validity */
@@ -1157,6 +1162,110 @@ static int hwsim_set_edge_lqi(struct sk_buff *msg, struct genl_info *info)
 	return -ENOENT;
 }
 
+static struct hwsim_phy *get_hwsim_data_ref_from_addr(const u8 *addr)
+{
+	return rhashtable_lookup_fast(&hwsim_radios_rht, addr, hwsim_rht_params);
+}
+
+static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
+					   struct genl_info *info)
+{
+
+	struct ieee802154_hdr *hdr;
+	struct hwsim_phy *data2;
+	//struct ieee80211_tx_info *txi;
+	struct hwsim_tx_rate *tx_attempts;
+	u64 ret_skb_cookie;
+	struct sk_buff *skb, *tmp;
+	const u8 *src;
+	unsigned int hwsim_flags;
+	int i;
+	unsigned long flags;
+	bool found = false;
+
+	if (!info->attrs[MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER] ||
+	   // !info->attrs[HWSIM_ATTR_FLAGS] ||
+	    !info->attrs[MAC802154_HWSIM_ATTR_COOKIE]
+	    //!info->attrs[HWSIM_ATTR_SIGNAL] ||
+	    //!info->attrs[MAC802154_HWSIM_ATTR_TX_INFO]
+		)
+		goto out;
+
+	src = (void *)nla_data(info->attrs[MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER]);
+	//hwsim_flags = nla_get_u32(info->attrs[HWSIM_ATTR_FLAGS]);
+	ret_skb_cookie = nla_get_u64(info->attrs[MAC802154_HWSIM_ATTR_COOKIE]);
+
+	data2 = get_hwsim_data_ref_from_addr(src);
+	if (!data2)
+		goto out;
+
+	if (!hwsim_virtio_enabled) {
+		if (hwsim_net_get_netgroup(genl_info_net(info)) !=
+		    data2->netgroup)
+			goto out;
+
+		if (info->snd_portid != data2->wmediumd)
+			goto out;
+	}
+
+	/* look for the skb matching the cookie passed back from user */
+	/*spin_lock_irqsave(&data2->pending.lock, flags);
+	skb_queue_walk_safe(&data2->pending, skb, tmp) {
+		uintptr_t skb_cookie;
+
+		txi = IEEE80211_SKB_CB(skb);
+		skb_cookie = (uintptr_t)txi->rate_driver_data[0];
+
+		if (skb_cookie == ret_skb_cookie) {
+			__skb_unlink(skb, &data2->pending);
+			found = true;
+			break;
+		}
+	}
+	spin_unlock_irqrestore(&data2->pending.lock, flags);*/
+
+	/* not found */
+	if (!found)
+		goto out;
+
+	/* Tx info received because the frame was broadcasted on user space,
+	 so we get all the necessary info: tx attempts and skb control buff */
+
+	//tx_attempts = (struct hwsim_tx_rate *)nla_data(
+	//	       info->attrs[HWSIM_ATTR_TX_INFO]);
+
+	/* now send back TX status */
+	//txi = IEEE80211_SKB_CB(skb);
+
+	//ieee80211_tx_info_clear_status(txi);
+
+	/*for (i = 0; i < IEEE80211_TX_MAX_RATES; i++) {
+		txi->status.rates[i].idx = tx_attempts[i].idx;
+		txi->status.rates[i].count = tx_attempts[i].count;
+	}*/
+
+	//txi->status.ack_signal = nla_get_u32(info->attrs[HWSIM_ATTR_SIGNAL]);
+
+	/*if (!(hwsim_flags & HWSIM_TX_CTL_NO_ACK) &&
+	   (hwsim_flags & HWSIM_TX_STAT_ACK)) {
+		if (skb->len >= 16) {
+			hdr = (struct ieee80211_hdr *) skb->data;
+			mac80211_hwsim_monitor_ack(data2->channel,
+						   hdr->addr2);
+		}
+		txi->flags |= IEEE80211_TX_STAT_ACK;
+	}
+
+	if (hwsim_flags & HWSIM_TX_CTL_NO_ACK)
+		txi->flags |= IEEE80211_TX_STAT_NOACK_TRANSMITTED;*/
+
+	//ieee80211_tx_status_irqsafe(data2->hw, skb);
+	return 0;
+out:
+	return -EINVAL;
+
+}
+
 static void hwsim_register_wmediumd(struct net *net, u32 portid)
 {
 	struct hwsim_phy *data;
@@ -1208,6 +1317,10 @@ static const struct nla_policy hwsim_genl_policy[MAC802154_HWSIM_ATTR_MAX + 1] =
 	[MAC802154_HWSIM_ATTR_RADIO_ID] = { .type = NLA_U32 },
 	[MAC802154_HWSIM_ATTR_RADIO_EDGE] = { .type = NLA_NESTED },
 	[MAC802154_HWSIM_ATTR_RADIO_EDGES] = { .type = NLA_NESTED },
+	[MAC802154_HWSIM_ATTR_ADDR_RECEIVER] = NLA_POLICY_ETH_ADDR_COMPAT,
+	[MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER] = NLA_POLICY_ETH_ADDR_COMPAT,
+	[MAC802154_HWSIM_ATTR_FRAME] = { .type = NLA_BINARY,
+			       .len = IEEE802154_MAX_HEADER_LEN },
 };
 
 /* Generic Netlink operations array */
@@ -1255,6 +1368,11 @@ static const struct genl_small_ops hwsim_nl_ops[] = {
 		.flags = GENL_UNS_ADMIN_PERM,
 	},
 	{
+		.cmd = MAC802154_HWSIM_CMD_TX_INFO_FRAME,
+		.validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
+		.doit = hwsim_tx_info_frame_received_nl,
+	},
+	{
 		.cmd = MAC802154_HWSIM_CMD_FRAME,
 		.validate = GENL_DONT_VALIDATE_STRICT | GENL_DONT_VALIDATE_DUMP,
 		.doit = hwsim_cloned_frame_received_nl,
@@ -1270,7 +1388,7 @@ static struct genl_family hwsim_genl_family __ro_after_init = {
 	.module = THIS_MODULE,
 	.small_ops = hwsim_nl_ops,
 	.n_small_ops = ARRAY_SIZE(hwsim_nl_ops),
-	.resv_start_op = MAC802154_HWSIM_CMD_FRAME + 1,
+	.resv_start_op = MAC802154_HWSIM_CMD_TX_INFO_FRAME + 1,
 	.mcgrps = hwsim_mcgrps,
 	.n_mcgrps = ARRAY_SIZE(hwsim_mcgrps),
 };
