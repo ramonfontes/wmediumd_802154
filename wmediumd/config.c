@@ -290,7 +290,7 @@ static void mirror_link(struct wmediumd *ctx, int from, int to)
 
 static void recalc_path_loss(struct wmediumd *ctx)
 {
-	int start, end, path_loss, gains, txpower, signal;
+	int start, end, path_loss, gains, txpower, lqi;
 
 	for (start = 0; start < ctx->num_stas; start++) {
 		for (end = 0; end < ctx->num_stas; end++) {
@@ -303,9 +303,9 @@ static void recalc_path_loss(struct wmediumd *ctx)
 			path_loss = ctx->calc_path_loss(ctx->path_loss_param,
 				ctx->sta_array[end], ctx->sta_array[start]);
 			gains = txpower + ctx->sta_array[start]->gain + ctx->sta_array[end]->gain;
-			signal = gains - path_loss - ctx->noise_threshold;
-            ctx->snr_matrix[ctx->num_stas * start + end] = signal;
-            ctx->snr_matrix[ctx->num_stas * end + start] = signal;
+			lqi = gains - path_loss - ctx->noise_threshold;
+            ctx->snr_matrix[ctx->num_stas * start + end] = lqi;
+            ctx->snr_matrix[ctx->num_stas * end + start] = lqi;
 	}
     }
 }
@@ -643,7 +643,7 @@ int load_config(struct wmediumd *ctx, const char *file, const char *per_file, bo
 			return -ENOMEM;
 		}
 		station->index = i;
-		memcpy(station->extended_src, addr, 8);
+		memcpy(station->extended_addr, addr, 8);
 		memcpy(station->hwaddr, addr, 8);
 		station->tx_power = SNR_DEFAULT;
 		station->gain = GAIN_DEFAULT;
@@ -669,7 +669,7 @@ int load_config(struct wmediumd *ctx, const char *file, const char *per_file, bo
 		}
 		for (i = 0; i < ctx->num_stas; i++)
 			for (j = 0; j < ctx->num_stas; j++)
-				ctx->intf[i * ctx->num_stas + j].signal = -200;
+				ctx->intf[i * ctx->num_stas + j].lqi = -200;
 	} else {
 		ctx->intf = NULL;
 	}

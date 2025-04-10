@@ -32,6 +32,7 @@
 
 #define WARN_QUEUE 100
 #define MAX_QUEUE 200
+#define HWSIM_SKB_CB(__skb) ((struct hwsim_cb *)&((__skb)->cb[0]))
 
 MODULE_DESCRIPTION("Software simulator of IEEE 802.15.4 radio(s) for mac802154");
 MODULE_LICENSE("GPL");
@@ -60,6 +61,10 @@ static struct class *hwsim_class;
 struct hwsim_net {
 	int netgroup;
 	u32 wmediumd;
+};
+
+struct hwsim_cb {
+	uintptr_t cookie;
 };
 
 static inline u32 hwsim_net_get_wmediumd(struct net *net)
@@ -171,6 +176,8 @@ struct hwsim_phy {
 	u32 idx;
 
 	struct hwsim_pib __rcu *pib;
+	bool rht_inserted;
+	u8 ieee_addr[8];
 
 	struct rhash_head rht;
 	struct dentry *debugfs;
@@ -196,8 +203,8 @@ struct hwsim_phy {
 static const struct rhashtable_params hwsim_rht_params = {
 	.nelem_hint = 2,
 	.automatic_shrinking = true,
-	.key_len = ETH_ALEN,
-	.key_offset = offsetof(struct hwsim_phy, pib) + offsetof(typeof(*((struct hwsim_phy *)0)->pib), filt) + offsetof(typeof(((struct hwsim_phy *)0)->pib->filt), ieee_addr) + 2,
+	.key_len = 8, //ETH_ALEN
+	.key_offset = offsetof(struct hwsim_phy, ieee_addr),
 	.head_offset = offsetof(struct hwsim_phy, rht),
 };
 
@@ -237,7 +244,7 @@ static int hwsim_update_pib(struct ieee802154_hw *hw, u8 page, u8 channel,
 	if (!pib)
 		return -ENOMEM;
 
-	pib_old = rtnl_dereference(phy->pib);
+	pib_old = rtnl_dereference(phy->pib);	
 
 	pib->page = page;
 	pib->channel = channel;
@@ -249,6 +256,7 @@ static int hwsim_update_pib(struct ieee802154_hw *hw, u8 page, u8 channel,
 
 	rcu_assign_pointer(phy->pib, pib);
 	kfree_rcu(pib_old, rcu);
+
 	return 0;
 }
 
@@ -427,6 +435,7 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 	//struct hwsim_pib *pib;
 	struct ieee802154_hdr hdr;
 	void *msg_head;
+	unsigned int hwsim_flags = 0;
 	uintptr_t cookie;
 	
 	//rcu_read_lock();
@@ -439,7 +448,6 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 		goto drop;
 	}
 
-	pr_info("Entrou no register wmediumd");
 	/* If the queue contains MAX_QUEUE skb's drop some */
 	if (skb_queue_len(&phy->pending) >= MAX_QUEUE) {
 		/* Dropping until WARN_QUEUE level */
@@ -463,6 +471,7 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 
 	u8 addr_buf[8];
 	put_unaligned_le64(hw->phy->perm_extended_addr, addr_buf);
+	put_unaligned_le64(hw->phy->perm_extended_addr, phy->ieee_addr);
 	if (nla_put(skb, MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER,
 		    8, addr_buf))
 		goto nla_put_failure;
@@ -470,6 +479,18 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 
 	/* We get the skb->data */
 	if (nla_put(skb, MAC802154_HWSIM_ATTR_FRAME, my_skb->len, my_skb->data))
+		goto nla_put_failure;
+
+	/* We get the flags for this transmission, and we translate them to
+	   wmediumd flags  */
+
+	//if (info->flags & IEEE80211_TX_CTL_REQ_TX_STATUS)
+	//	hwsim_flags |= HWSIM_TX_CTL_REQ_TX_STATUS;
+
+	//if (info->flags & IEEE80211_TX_CTL_NO_ACK)
+	//	hwsim_flags |= HWSIM_TX_CTL_NO_ACK;
+
+	if (nla_put_u32(skb, MAC802154_HWSIM_ATTR_FLAGS, hwsim_flags))
 		goto nla_put_failure;
 
 	/* We create a cookie to identify this skb */
@@ -490,15 +511,19 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 			goto err_free_txskb;
 	}
 
+
+	memset(my_skb->cb, 0, sizeof(my_skb->cb));
+	HWSIM_SKB_CB(my_skb)->cookie = cookie;
+
 	/* Enqueue the packet */
-	//skb_queue_tail(&phy->pending, my_skb);
+	skb_queue_tail(&phy->pending, my_skb);
 	//data->tx_pkts++;
 	//data->tx_bytes += my_skb->len;
 
 	//ieee802154_rx_irqsafe(hw, skb, lqi);
 
-	print_hex_dump(KERN_INFO, "Frame: ", DUMP_PREFIX_OFFSET, 16, 1, skb->data, skb->len, true);
-	print_hex_dump(KERN_INFO, "Atributo FRAME: ", DUMP_PREFIX_OFFSET, 16, 1, my_skb->data, my_skb->len, true);
+	//print_hex_dump(KERN_INFO, "Frame: ", DUMP_PREFIX_OFFSET, 16, 1, skb->data, skb->len, true);
+	//print_hex_dump(KERN_INFO, "Atributo FRAME: ", DUMP_PREFIX_OFFSET, 16, 1, my_skb->data, my_skb->len, true);
 
 	return;
 
@@ -1173,7 +1198,7 @@ static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
 
 	struct ieee802154_hdr *hdr;
 	struct hwsim_phy *data2;
-	//struct ieee80211_tx_info *txi;
+	struct hwsim_cb *txi;
 	struct hwsim_tx_rate *tx_attempts;
 	u64 ret_skb_cookie;
 	struct sk_buff *skb, *tmp;
@@ -1182,23 +1207,26 @@ static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
 	int i;
 	unsigned long flags;
 	bool found = false;
-
+	bool acked = true;
+	
 	if (!info->attrs[MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER] ||
-	   // !info->attrs[HWSIM_ATTR_FLAGS] ||
-	    !info->attrs[MAC802154_HWSIM_ATTR_COOKIE]
+	    !info->attrs[MAC802154_HWSIM_ATTR_FLAGS] ||
+	    !info->attrs[MAC802154_HWSIM_ATTR_COOKIE] 
 	    //!info->attrs[HWSIM_ATTR_SIGNAL] ||
 	    //!info->attrs[MAC802154_HWSIM_ATTR_TX_INFO]
 		)
 		goto out;
 
 	src = (void *)nla_data(info->attrs[MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER]);
-	//hwsim_flags = nla_get_u32(info->attrs[HWSIM_ATTR_FLAGS]);
+	hwsim_flags = nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_FLAGS]);
 	ret_skb_cookie = nla_get_u64(info->attrs[MAC802154_HWSIM_ATTR_COOKIE]);
+
+	print_hex_dump(KERN_INFO, "Frame: ", DUMP_PREFIX_OFFSET, 16, 1, skb_2->data, skb_2->len, true);
 
 	data2 = get_hwsim_data_ref_from_addr(src);
 	if (!data2)
 		goto out;
-
+	
 	if (!hwsim_virtio_enabled) {
 		if (hwsim_net_get_netgroup(genl_info_net(info)) !=
 		    data2->netgroup)
@@ -1209,20 +1237,16 @@ static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
 	}
 
 	/* look for the skb matching the cookie passed back from user */
-	/*spin_lock_irqsave(&data2->pending.lock, flags);
+	spin_lock_irqsave(&data2->pending.lock, flags);
 	skb_queue_walk_safe(&data2->pending, skb, tmp) {
-		uintptr_t skb_cookie;
-
-		txi = IEEE80211_SKB_CB(skb);
-		skb_cookie = (uintptr_t)txi->rate_driver_data[0];
-
+		uintptr_t skb_cookie = HWSIM_SKB_CB(skb)->cookie;
 		if (skb_cookie == ret_skb_cookie) {
 			__skb_unlink(skb, &data2->pending);
 			found = true;
 			break;
 		}
 	}
-	spin_unlock_irqrestore(&data2->pending.lock, flags);*/
+	spin_unlock_irqrestore(&data2->pending.lock, flags);
 
 	/* not found */
 	if (!found)
@@ -1232,12 +1256,10 @@ static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
 	 so we get all the necessary info: tx attempts and skb control buff */
 
 	//tx_attempts = (struct hwsim_tx_rate *)nla_data(
-	//	       info->attrs[HWSIM_ATTR_TX_INFO]);
+	//	       info->attrs[MAC802154_HWSIM_ATTR_TX_INFO]);
 
 	/* now send back TX status */
-	//txi = IEEE80211_SKB_CB(skb);
-
-	//ieee80211_tx_info_clear_status(txi);
+	txi = HWSIM_SKB_CB(skb);
 
 	/*for (i = 0; i < IEEE80211_TX_MAX_RATES; i++) {
 		txi->status.rates[i].idx = tx_attempts[i].idx;
@@ -1259,7 +1281,8 @@ static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
 	if (hwsim_flags & HWSIM_TX_CTL_NO_ACK)
 		txi->flags |= IEEE80211_TX_STAT_NOACK_TRANSMITTED;*/
 
-	//ieee80211_tx_status_irqsafe(data2->hw, skb);
+	ieee802154_xmit_complete(data2->hw, skb, acked);
+
 	return 0;
 out:
 	return -EINVAL;
@@ -1296,6 +1319,7 @@ static int hwsim_register_received_nl(struct sk_buff *msg, struct genl_info *inf
 	 * let this pass conditionally on the flag.
 	 * For current userspace, prohibit it since it won't work right.
 	 */
+	
 	if (chans > 1)
 		return -EOPNOTSUPP;
 
@@ -1317,8 +1341,8 @@ static const struct nla_policy hwsim_genl_policy[MAC802154_HWSIM_ATTR_MAX + 1] =
 	[MAC802154_HWSIM_ATTR_RADIO_ID] = { .type = NLA_U32 },
 	[MAC802154_HWSIM_ATTR_RADIO_EDGE] = { .type = NLA_NESTED },
 	[MAC802154_HWSIM_ATTR_RADIO_EDGES] = { .type = NLA_NESTED },
-	[MAC802154_HWSIM_ATTR_ADDR_RECEIVER] = NLA_POLICY_ETH_ADDR_COMPAT,
-	[MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER] = NLA_POLICY_ETH_ADDR_COMPAT,
+	[MAC802154_HWSIM_ATTR_ADDR_RECEIVER] = { .type = NLA_BINARY, .len = 8 },
+	[MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER] = { .type = NLA_BINARY, .len = 8 },
 	[MAC802154_HWSIM_ATTR_FRAME] = { .type = NLA_BINARY,
 			       .len = IEEE802154_MAX_HEADER_LEN },
 };
@@ -1488,6 +1512,7 @@ static int hwsim_add_one(struct genl_info *info, struct device *dev,
 	struct net *net;
 	int idx;
 	int err;
+	int ret;
 
 	idx = hwsim_radio_idx++;
 
@@ -1538,6 +1563,7 @@ static int hwsim_add_one(struct genl_info *info, struct device *dev,
 	hw->phy->supported.channels[6] |= 0x3ffc00;
 
 	hw->phy->perm_extended_addr = cpu_to_le64(((u64)0x02 << 56) | ((u64)idx));
+	memcpy(phy->ieee_addr, &hw->phy->perm_extended_addr, 8);
 
 	/* hwsim phy channel 13 as default */
 	hw->phy->current_channel = 13;
@@ -1578,10 +1604,22 @@ static int hwsim_add_one(struct genl_info *info, struct device *dev,
 	list_add_tail(&phy->list, &hwsim_phys);
 	mutex_unlock(&hwsim_phys_lock);
 
+	ret = rhashtable_insert_fast(&hwsim_radios_rht, &phy->rht, hwsim_rht_params);
+	if (ret < 0) {
+		pr_err("Erro ao inserir PHY na rhashtable: %d\n", ret);
+		goto failed_final_insert;
+	}
+	phy->rht_inserted = true;
+
+	pr_info("Inserido na rhashtable: %*phC\n", 8, phy->ieee_addr);
+
 	hwsim_mcast_new_radio(info, phy);
 
 	return idx;
 
+failed_final_insert:
+	debugfs_remove_recursive(phy->debugfs);
+	ieee802154_unregister_hw(phy->hw);
 err_subscribe:
 	ieee802154_unregister_hw(phy->hw);
 err_reg:

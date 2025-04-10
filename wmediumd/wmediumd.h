@@ -24,13 +24,16 @@
 #ifndef WMEDIUMD_H_
 #define WMEDIUMD_H_
 
-#define HWSIM_TX_CTL_REQ_TX_STATUS	2
-#define HWSIM_TX_CTL_NO_ACK		(1 << 1)
-#define HWSIM_TX_STAT_ACK		(1 << 2)
+#define MAC802154_HWSIM_TX_CTL_REQ_TX_STATUS	2
+#define MAC802154_HWSIM_TX_CTL_NO_ACK		(1 << 1)
+#define MAC802154_HWSIM_TX_STAT_ACK		(1 << 2)
 
 #define MAC802154_HWSIM_CMD_REGISTER 9
 #define MAC802154_HWSIM_CMD_FRAME 10
 #define MAC802154_HWSIM_CMD_TX_INFO_FRAME 11
+
+#define IEEE802154_ADDR_SHORT 2
+#define IEEE802154_ADDR_EXTENDED 3
 
 /* mac802154 hwsim netlink attributes
  *
@@ -51,6 +54,8 @@ enum {
 	MAC802154_HWSIM_ATTR_FRAME,
 	MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER,
 	MAC802154_HWSIM_ATTR_ADDR_RECEIVER,
+	MAC802154_HWSIM_ATTR_TX_INFO,
+	MAC802154_HWSIM_ATTR_FLAGS,
 	__MAC802154_HWSIM_ATTR_MAX,
 };
 #define MAC802154_HWSIM_ATTR_MAX (__MAC802154_HWSIM_ATTR_MAX - 1)
@@ -124,7 +129,7 @@ struct wqueue {
 
 struct station {
 	int index;
-	u8 extended_src[64];		/* virtual interface mac address */
+	u8 extended_addr[64];		/* virtual interface mac address */
 	u8 hwaddr[8];		/* hardware address of hwsim radio */
 	double x, y, z;			/* position of the station [m] */
 	double dir_x, dir_y;		/* direction of the station [meter per MOVE_INTERVAL] */
@@ -190,7 +195,7 @@ struct frame {
 	u64 cookie;
 	u32 freq;
 	int flags;
-	int signal;
+	int lqi;
 	int duration;
 	int tx_rates_count;
 	struct station *sender;
@@ -224,7 +229,7 @@ struct two_ray_ground_model_param {
 };
 
 struct intf_info {
-	int signal;
+	int lqi;
 	int duration;
 	double prob_col;
 };

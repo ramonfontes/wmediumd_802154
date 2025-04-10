@@ -2,6 +2,24 @@
 #define __MAC802154_HWSIM_H
 
 
+/**
+ * enum hwsim_tx_control_flags - flags to describe transmission info/status
+ *
+ * These flags are used to give the wmediumd extra information in order to
+ * modify its behavior for each frame
+ *
+ * @HWSIM_TX_CTL_REQ_TX_STATUS: require TX status callback for this frame.
+ * @HWSIM_TX_CTL_NO_ACK: tell the wmediumd not to wait for an ack
+ * @HWSIM_TX_STAT_ACK: Frame was acknowledged
+ *
+ */
+enum hwsim_tx_control_flags {
+	MAC802154_HWSIM_TX_CTL_REQ_TX_STATUS		= BIT(0),
+	MAC802154_HWSIM_TX_CTL_NO_ACK			= BIT(1),
+	MAC802154_HWSIM_TX_STAT_ACK			= BIT(2),
+};
+
+
 /* mac802154 hwsim netlink commands
  * @HWSIM_CMD_REGISTER: request to register and received all broadcasted
  *		frames by any mac802154_hwsim radio device.
@@ -58,6 +76,8 @@ enum {
 	MAC802154_HWSIM_ATTR_FRAME,
 	MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER,
 	MAC802154_HWSIM_ATTR_ADDR_RECEIVER,
+	MAC802154_HWSIM_ATTR_TX_INFO,
+	MAC802154_HWSIM_ATTR_FLAGS,
 	__MAC802154_HWSIM_ATTR_MAX,
 };
 
