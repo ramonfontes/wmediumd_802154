@@ -129,6 +129,8 @@ struct wqueue {
 
 struct station {
 	int index;
+	u8 short_addr[16];
+	int addr_len;
 	u8 extended_addr[64];		/* virtual interface mac address */
 	u8 hwaddr[8];		/* hardware address of hwsim radio */
 	double x, y, z;			/* position of the station [m] */

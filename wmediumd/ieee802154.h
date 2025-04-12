@@ -40,6 +40,8 @@ typedef uint64_t u64;
 #define ETH_ALEN 6
 #endif
 
+#define IEEE802154_MAX_DATA_LEN  90
+
 #define FCTL_FTYPE		0x0c
 #define FCTL_TODS		0x01
 #define FCTL_FROMDS		0x02
