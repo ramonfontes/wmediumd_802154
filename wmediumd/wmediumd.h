@@ -201,6 +201,7 @@ struct frame {
 	int duration;
 	int tx_rates_count;
 	struct station *sender;
+	uint8_t dest_mode;
 	struct hwsim_tx_rate tx_rates[IEEE80211_TX_MAX_RATES];
 	size_t data_len;
 	u8 data[0];			/* frame contents */

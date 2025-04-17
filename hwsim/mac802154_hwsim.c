@@ -33,6 +33,8 @@
 #define WARN_QUEUE 100
 #define MAX_QUEUE 200
 #define HWSIM_SKB_CB(__skb) ((struct hwsim_cb *)&((__skb)->cb[0]))
+#define IEEE802154_FCF_FRAME_TYPE_MASK 0x0007
+#define IEEE802154_FRAME_TYPE_DATA     0x0001
 
 MODULE_DESCRIPTION("Software simulator of IEEE 802.15.4 radio(s) for mac802154");
 MODULE_LICENSE("GPL");
@@ -186,6 +188,14 @@ struct hwsim_phy {
 	struct device *dev;
 	struct mutex mutex;
 
+	/* Stats */
+	u64 tx_pkts;
+	u64 rx_pkts;
+	u64 tx_bytes;
+	u64 rx_bytes;
+	u64 tx_dropped;
+	u64 tx_failed;
+
 	bool destroy_on_close;
 	u32 portid;
 
@@ -260,6 +270,11 @@ static int hwsim_update_pib(struct ieee802154_hw *hw, u8 page, u8 channel,
 	return 0;
 }
 
+static struct hwsim_phy *get_hwsim_data_ref_from_addr(const u8 *addr)
+{
+	return rhashtable_lookup_fast(&hwsim_radios_rht, addr, hwsim_rht_params);
+}
+
 static int hwsim_hw_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
 {
 	struct hwsim_phy *phy = hw->priv;
@@ -313,119 +328,28 @@ static int hwsim_unicast_netgroup(struct hwsim_phy *data,
 	return res;
 }
 
-static int hwsim_cloned_frame_received_nl(struct sk_buff *skb_2,
-					  struct genl_info *info)
+struct hwsim_phy *find_phy_by_link_addrs(const u8 *src_addr, const u8 *dst_addr)
 {
-	printk("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n");
-	struct hwsim_phy *data2;
-	//struct ieee80211_rx_status rx_status;
-	struct ieee802154_hdr *hdr;
-	const u8 *dst;
-	int frame_data_len;
-	void *frame_data;
-	struct sk_buff *skb = NULL;
-	//struct ieee80211_channel *channel = NULL;
+	struct hwsim_phy *phy;
 
-	if (!info->attrs[MAC802154_HWSIM_ATTR_ADDR_RECEIVER] ||
-	    !info->attrs[MAC802154_HWSIM_ATTR_FRAME])
-		goto out;
-
-	/*dst = (void *)nla_data(info->attrs[MAC802154_HWSIM_ATTR_ADDR_RECEIVER]);
-	frame_data_len = nla_len(info->attrs[MAC802154_HWSIM_ATTR_FRAME]);
-	frame_data = (void *)nla_data(info->attrs[MAC802154_HWSIM_ATTR_FRAME]);*/
-	/*
-	if (frame_data_len < sizeof(struct ieee80211_hdr_3addr) ||
-	    frame_data_len > IEEE80211_MAX_DATA_LEN)
-		goto err;
-	
-	/* Allocate new skb here */
-	/*skb = alloc_skb(frame_data_len, GFP_KERNEL);
-	if (skb == NULL)
-		goto err;
-
-	/* Copy the data */
-	/*skb_put_data(skb, frame_data, frame_data_len);
-
-	data2 = get_hwsim_data_ref_from_addr(dst);
-	if (!data2)
-		goto out;
-
-	if (data2->use_chanctx) {
-		if (data2->tmp_chan)
-			channel = data2->tmp_chan;
-	} else {
-		channel = data2->channel;
-	}
-
-	if (!hwsim_virtio_enabled) {
-		if (hwsim_net_get_netgroup(genl_info_net(info)) !=
-		    data2->netgroup)
-			goto out;
-
-		if (info->snd_portid != data2->wmediumd)
-			goto out;
-	}
-
-	/* check if radio is configured properly */
-
-	/*if ((data2->idle && !data2->tmp_chan) || !data2->started)
-		goto out;
-
-	/* A frame is received from user space */
-	/*memset(&rx_status, 0, sizeof(rx_status));
-	if (info->attrs[HWSIM_ATTR_FREQ]) {
-		struct tx_iter_data iter_data = {};
-
-		/* throw away off-channel packets, but allow both the temporary
-		 * ("hw" scan/remain-on-channel), regular channels and links,
-		 * since the internal datapath also allows this
-		 */
-	/*	rx_status.freq = nla_get_u32(info->attrs[HWSIM_ATTR_FREQ]);
-
-		iter_data.channel = ieee80211_get_channel(data2->hw->wiphy,
-							  rx_status.freq);
-		if (!iter_data.channel)
-			goto out;
-		rx_status.band = iter_data.channel->band;
-
-		mutex_lock(&data2->mutex);
-		if (!hwsim_chans_compat(iter_data.channel, channel)) {
-			ieee80211_iterate_active_interfaces_atomic(
-				data2->hw, IEEE80211_IFACE_ITER_NORMAL,
-				mac80211_hwsim_tx_iter, &iter_data);
-			if (!iter_data.receive) {
-				mutex_unlock(&data2->mutex);
-				goto out;
-			}
+	rcu_read_lock();
+	list_for_each_entry_rcu(phy, &hwsim_phys, list) {
+		if (memcmp(phy->ieee_addr, src_addr, 8) == 0 ||
+		    memcmp(phy->ieee_addr, dst_addr, 8) == 0) {
+			rcu_read_unlock();
+			return phy;
 		}
-		mutex_unlock(&data2->mutex);
-	} else if (!channel) {
-		goto out;
-	} else {
-		rx_status.freq = channel->center_freq;
-		rx_status.band = channel->band;
 	}
-
-	rx_status.rate_idx = nla_get_u32(info->attrs[HWSIM_ATTR_RX_RATE]);
-	if (rx_status.rate_idx >= data2->hw->wiphy->bands[rx_status.band]->n_bitrates)
-		goto out;
-	rx_status.signal = nla_get_u32(info->attrs[HWSIM_ATTR_SIGNAL]);
-
-	hdr = (void *)skb->data;
-
-	if (ieee80211_is_beacon(hdr->frame_control) ||
-	    ieee80211_is_probe_resp(hdr->frame_control))
-		rx_status.boottime_ns = ktime_get_boottime_ns();
-
-	mac80211_hwsim_rx(data2, &rx_status, skb);
-	*/
-	return 0;
-err:
-	pr_debug("mac802154_hwsim: error occurred in %s\n", __func__);
-out:
-	dev_kfree_skb(skb);
-	return -EINVAL;
+	rcu_read_unlock();
+	return NULL;
 }
+
+bool is_mgmt_154(uint16_t fcf)
+{
+	uint8_t type = fcf & 0x7;
+	return type == 0b000 || type == 0b011; // beacon or MAC command
+}
+
 
 static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff *my_skb,
 			     int dst_portid, u8 lqi)
@@ -433,21 +357,11 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 	struct sk_buff *skb;
 	struct hwsim_phy *phy = hw->priv;
 	//struct hwsim_pib *pib;
-	struct ieee802154_hdr hdr;
+	//struct ieee802154_hdr hdr;
 	void *msg_head;
 	unsigned int hwsim_flags = 0;
 	uintptr_t cookie;
 	
-	//rcu_read_lock();
-	//pib = rcu_dereference(phy->pib);
-
-	//memcpy(&hdr, skb->data, 3);
-	
-	if (!pskb_may_pull(my_skb, 3)) {
-		dev_dbg(hw->parent, "invalid frame\n");
-		goto drop;
-	}
-
 	/* If the queue contains MAX_QUEUE skb's drop some */
 	if (skb_queue_len(&phy->pending) >= MAX_QUEUE) {
 		/* Dropping until WARN_QUEUE level */
@@ -501,8 +415,6 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 
 	genlmsg_end(skb, msg_head);
 
-	//rcu_read_unlock();
-
 	if (hwsim_virtio_enabled) {
 		//if (hwsim_tx_virtio(phy, skb))
 		//	goto err_free_txskb;
@@ -512,8 +424,8 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 	}
 
 
-	memset(my_skb->cb, 0, sizeof(my_skb->cb));
-	HWSIM_SKB_CB(my_skb)->cookie = cookie;
+	//memset(my_skb->cb, 0, sizeof(my_skb->cb));
+	//HWSIM_SKB_CB(my_skb)->cookie = cookie;
 
 	/* Enqueue the packet */
 	skb_queue_tail(&phy->pending, my_skb);
@@ -552,7 +464,7 @@ static void hwsim_hw_receive(struct ieee802154_hw *hw, struct sk_buff *skb,
 		dev_dbg(hw->parent, "invalid frame\n");
 		goto drop;
 	}
-		
+			
 	memcpy(&hdr, skb->data, 3);
 
 	/* Level 4 filtering: Frame fields validity */
@@ -633,9 +545,11 @@ static void hwsim_hw_receive(struct ieee802154_hw *hw, struct sk_buff *skb,
 		}
 	}
 
+
 	rcu_read_unlock();
 
 	ieee802154_rx_irqsafe(hw, skb, lqi);
+
 
 	return;
 
@@ -657,35 +571,240 @@ static int hwsim_hw_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 	/* wmediumd mode check */
 	_portid = READ_ONCE(current_phy->wmediumd);
 
+	if (_portid || hwsim_virtio_enabled){
+		struct sk_buff *newskb = pskb_copy(skb, GFP_ATOMIC);
+		mac802154_hwsim_tx_frame_nl(hw, newskb, _portid, 255);
+		//consume_skb(skb);
+		dev_kfree_skb_irq(skb);
+		dev_kfree_skb_irq(newskb);
+	}
+	else{
+		rcu_read_lock();
+		current_pib = rcu_dereference(current_phy->pib);
+		list_for_each_entry_rcu(e, &current_phy->edges, list) {
+			/* Can be changed later in rx_irqsafe, but this is only a
+			* performance tweak. Received radio should drop the frame
+			* in mac802154 stack anyway... so we don't need to be
+			* 100% of locking here to check on suspended
+			*/
+			if (e->endpoint->suspended)
+				continue;
+
+			endpoint_pib = rcu_dereference(e->endpoint->pib);
+			if (current_pib->page == endpoint_pib->page &&
+				current_pib->channel == endpoint_pib->channel) {
+				struct sk_buff *newskb = pskb_copy(skb, GFP_ATOMIC);
+
+				einfo = rcu_dereference(e->info);
+				if (newskb)
+					hwsim_hw_receive(e->endpoint->hw, newskb, einfo->lqi);
+			}
+		}
+		rcu_read_unlock();	
+		ieee802154_xmit_complete(hw, skb, false);
+	}
+	//print_hex_dump(KERN_INFO, "Frame WMED----IUMD: ", DUMP_PREFIX_OFFSET, 16, 1, skb->data, skb->len, true);
+
+	return 0;
+}
+
+static void mac802154_hwsim_rx(struct hwsim_phy *data,
+			      //struct ieee802154_rx_info *rx_status,
+			      struct sk_buff *skb)
+{
+	struct ieee802154_hdr *hdr = (void *)skb->data;
+	//const u8 *src = hdr->source.extended_addr;
+	//const u8 *dst = hdr->dest.extended_addr;
+	u8 lqi = 10;
+
+	/*if ( q(is_mgmt_154(hdr->frame_control) ||
+	     ieee802154_is_data(hdr->frame_control))) {
+		unsigned int link_id;
+
+		rcu_read_lock();
+		struct hwsim_phy *peer = find_phy_by_link_addrs(src, dst);
+		if (peer) {
+			/*struct hwsim_sta_priv *sp = (void *)sta->drv_priv;
+
+			if (ieee80211_has_pm(hdr->frame_control))
+				sp->active_links_rx &= ~BIT(link_id);
+			else
+				sp->active_links_rx |= BIT(link_id);
+
+			rx_status->link_valid = true;
+			rx_status->link_id = link_id;*/
+		/*}
+		rcu_read_unlock();
+	}*/
+
+	//struct ieee802154_rx_info *rxinfo = HWSIM_SKB_CB(skb);
+	//rxinfo->lqi = lqi;
+	//rxinfo->crc = 1;
+
+	print_hex_dump(KERN_INFO, "Frame WMEDIUMD: ", DUMP_PREFIX_OFFSET, 16, 1, skb->data, skb->len, true);
+
+	data->rx_pkts++;
+	data->rx_bytes += skb->len;
+	//ieee802154_rx_irqsafe(data->hw, skb, lqi);
+	//hwsim_hw_receive(data->hw, skb, lqi);
+
+	struct hwsim_phy *current_phy = data->hw->priv;
+	struct hwsim_pib *current_pib, *endpoint_pib;
+	struct hwsim_edge_info *einfo;
+	struct hwsim_edge *e;
+
+	WARN_ON(current_phy->suspended);
+
 	rcu_read_lock();
+	//if (!current_phy->pib) {
+	//	printk("current_phy->pib é NULL\n");
+	//}
+
 	current_pib = rcu_dereference(current_phy->pib);
 	list_for_each_entry_rcu(e, &current_phy->edges, list) {
 		/* Can be changed later in rx_irqsafe, but this is only a
-		 * performance tweak. Received radio should drop the frame
-		 * in mac802154 stack anyway... so we don't need to be
-		 * 100% of locking here to check on suspended
-		 */
+		* performance tweak. Received radio should drop the frame
+		* in mac802154 stack anyway... so we don't need to be
+		* 100% of locking here to check on suspended
+		*/
 		if (e->endpoint->suspended)
 			continue;
 
 		endpoint_pib = rcu_dereference(e->endpoint->pib);
 		if (current_pib->page == endpoint_pib->page &&
-		    current_pib->channel == endpoint_pib->channel) {
+			current_pib->channel == endpoint_pib->channel) {
 			struct sk_buff *newskb = pskb_copy(skb, GFP_ATOMIC);
-
 			einfo = rcu_dereference(e->info);
-			if (newskb){
-				if (_portid || hwsim_virtio_enabled)
-					mac802154_hwsim_tx_frame_nl(e->endpoint->hw, newskb, _portid, einfo->lqi);
-				else
-					hwsim_hw_receive(e->endpoint->hw, newskb, einfo->lqi);
-			}
+			
+			if (newskb)
+				//ieee802154_rx_irqsafe(e->endpoint->hw, newskb, einfo->lqi);
+				hwsim_hw_receive(e->endpoint->hw, newskb, einfo->lqi);
 		}
 	}
 	rcu_read_unlock();
 
-	ieee802154_xmit_complete(hw, skb, false);
+	ieee802154_xmit_complete(data->hw, skb, false);
+}
+
+static int hwsim_cloned_frame_received_nl(struct sk_buff *skb_2,
+					  struct genl_info *info)
+{
+	struct hwsim_phy *data2;
+	//struct ieee802154_hdr *hdr;
+	const u8 *dst;
+	int frame_data_len;
+	void *frame_data;
+	struct sk_buff *skb = NULL;
+	u8 lqi = 10;
+
+	printk("nnnnnnnnnnnnn\n");
+
+	if (!info->attrs[MAC802154_HWSIM_ATTR_ADDR_RECEIVER] ||
+	    !info->attrs[MAC802154_HWSIM_ATTR_FRAME])
+		goto out;
+
+	dst = (void *)nla_data(info->attrs[MAC802154_HWSIM_ATTR_ADDR_RECEIVER]);
+	frame_data_len = nla_len(info->attrs[MAC802154_HWSIM_ATTR_FRAME]);
+	frame_data = (void *)nla_data(info->attrs[MAC802154_HWSIM_ATTR_FRAME]);
+	
+	if (frame_data_len < IEEE802154_MIN_HDR_LEN ||
+    	frame_data_len > IEEE802154_MAX_FRAME_LEN)
+    	goto err;
+	
+	/* Allocate new skb here */
+	skb = alloc_skb(frame_data_len, GFP_KERNEL);
+	if (skb == NULL)
+		goto err;
+
+	/* Copy the data */
+	skb_put_data(skb, frame_data, frame_data_len);
+
+	data2 = get_hwsim_data_ref_from_addr(dst);
+	if (!data2)
+		goto out;
+	struct ieee802154_hw *hw = data2->hw;
+	
+	/*if (data2->use_chanctx) {
+		if (data2->tmp_chan)
+			channel = data2->tmp_chan;
+	} else {
+		channel = data2->channel;
+	}*/
+
+	if (!hwsim_virtio_enabled) {
+		if (hwsim_net_get_netgroup(genl_info_net(info)) !=
+		    data2->netgroup)
+			goto out;
+
+		if (info->snd_portid != data2->wmediumd)
+			goto out;
+	}
+
+	//print_hex_dump(KERN_INFO, "Frame: ", DUMP_PREFIX_OFFSET, 16, 1, skb_2->data, skb_2->len, true);
+
+	/* check if radio is configured properly */
+
+	//if ((data2->idle && !data2->tmp_chan) || !data2->started)
+	//	goto out;
+
+	/* A frame is received from user space */
+	//memset(&rx_status, 0, sizeof(rx_status));
+	/*if (info->attrs[HWSIM_ATTR_FREQ]) {
+		struct tx_iter_data iter_data = {};
+
+		/* throw away off-channel packets, but allow both the temporary
+		 * ("hw" scan/remain-on-channel), regular channels and links,
+		 * since the internal datapath also allows this
+		 */
+	/*	rx_status.freq = nla_get_u32(info->attrs[HWSIM_ATTR_FREQ]);
+
+		iter_data.channel = ieee80211_get_channel(data2->hw->wiphy,
+							  rx_status.freq);
+		if (!iter_data.channel)
+			goto out;
+		rx_status.band = iter_data.channel->band;
+
+		mutex_lock(&data2->mutex);
+		if (!hwsim_chans_compat(iter_data.channel, channel)) {
+			ieee80211_iterate_active_interfaces_atomic(
+				data2->hw, IEEE80211_IFACE_ITER_NORMAL,
+				mac80211_hwsim_tx_iter, &iter_data);
+			if (!iter_data.receive) {
+				mutex_unlock(&data2->mutex);
+				goto out;
+			}
+		}
+		mutex_unlock(&data2->mutex);
+	} else if (!channel) {
+		goto out;
+	} else {
+		rx_status.freq = channel->center_freq;
+		rx_status.band = channel->band;
+	}
+
+	rx_status.rate_idx = nla_get_u32(info->attrs[HWSIM_ATTR_RX_RATE]);
+	if (rx_status.rate_idx >= data2->hw->wiphy->bands[rx_status.band]->n_bitrates)
+		goto out;
+	rx_status.signal = nla_get_u32(info->attrs[HWSIM_ATTR_SIGNAL]);
+
+	hdr = (void *)skb->data;
+
+	if (ieee80211_is_beacon(hdr->frame_control) ||
+	    ieee80211_is_probe_resp(hdr->frame_control))
+		rx_status.boottime_ns = ktime_get_boottime_ns();
+
+	mac80211_hwsim_rx(data2, &rx_status, skb);
+	*/
+  //  ieee802154_rx_irqsafe(data2->hw, skb, lqi);
+	//ieee802154_xmit_complete(data2->hw, skb, false);
+
+	mac802154_hwsim_rx(data2, skb);
 	return 0;
+err:
+	pr_debug("mac802154_hwsim: error occurred in %s\n", __func__);
+out:
+	dev_kfree_skb(skb);
+	return -EINVAL;
 }
 
 static int hwsim_hw_start(struct ieee802154_hw *hw)
@@ -1187,24 +1306,19 @@ static int hwsim_set_edge_lqi(struct sk_buff *msg, struct genl_info *info)
 	return -ENOENT;
 }
 
-static struct hwsim_phy *get_hwsim_data_ref_from_addr(const u8 *addr)
-{
-	return rhashtable_lookup_fast(&hwsim_radios_rht, addr, hwsim_rht_params);
-}
-
 static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
 					   struct genl_info *info)
 {
 
-	struct ieee802154_hdr *hdr;
+	//struct ieee802154_hdr *hdr;
 	struct hwsim_phy *data2;
 	struct hwsim_cb *txi;
-	struct hwsim_tx_rate *tx_attempts;
+	//struct hwsim_tx_rate *tx_attempts;
 	u64 ret_skb_cookie;
 	struct sk_buff *skb, *tmp;
 	const u8 *src;
 	unsigned int hwsim_flags;
-	int i;
+	//int i;
 	unsigned long flags;
 	bool found = false;
 	bool acked = true;
@@ -1221,7 +1335,7 @@ static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
 	hwsim_flags = nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_FLAGS]);
 	ret_skb_cookie = nla_get_u64(info->attrs[MAC802154_HWSIM_ATTR_COOKIE]);
 
-	print_hex_dump(KERN_INFO, "Frame: ", DUMP_PREFIX_OFFSET, 16, 1, skb_2->data, skb_2->len, true);
+	//print_hex_dump(KERN_INFO, "Frame: ", DUMP_PREFIX_OFFSET, 16, 1, skb_2->data, skb_2->len, true);
 
 	data2 = get_hwsim_data_ref_from_addr(src);
 	if (!data2)
@@ -1281,7 +1395,7 @@ static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
 	if (hwsim_flags & HWSIM_TX_CTL_NO_ACK)
 		txi->flags |= IEEE80211_TX_STAT_NOACK_TRANSMITTED;*/
 
-	ieee802154_xmit_complete(data2->hw, skb, acked);
+	//ieee802154_xmit_complete(data2->hw, skb, acked);
 
 	return 0;
 out:
@@ -1344,7 +1458,7 @@ static const struct nla_policy hwsim_genl_policy[MAC802154_HWSIM_ATTR_MAX + 1] =
 	[MAC802154_HWSIM_ATTR_ADDR_RECEIVER] = { .type = NLA_BINARY, .len = 8 },
 	[MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER] = { .type = NLA_BINARY, .len = 8 },
 	[MAC802154_HWSIM_ATTR_FRAME] = { .type = NLA_BINARY,
-			       .len = IEEE802154_MAX_HEADER_LEN },
+			       .len = IEEE802154_MAX_FRAME_LEN },
 };
 
 /* Generic Netlink operations array */
@@ -1606,12 +1720,10 @@ static int hwsim_add_one(struct genl_info *info, struct device *dev,
 
 	ret = rhashtable_insert_fast(&hwsim_radios_rht, &phy->rht, hwsim_rht_params);
 	if (ret < 0) {
-		pr_err("Erro ao inserir PHY na rhashtable: %d\n", ret);
+		pr_err("Error in adding PHY into rhashtable: %d\n", ret);
 		goto failed_final_insert;
 	}
 	phy->rht_inserted = true;
-
-	pr_info("Inserido na rhashtable: %*phC\n", 8, phy->ieee_addr);
 
 	hwsim_mcast_new_radio(info, phy);
 
@@ -1808,7 +1920,7 @@ static int hwsim_virtio_handle_cmd(struct sk_buff *skb)
 	/*case MAC802154_HWSIM_CMD_FRAME:
 		hwsim_cloned_frame_received_nl(skb, &info);
 		break;
-	case HWSIM_CMD_TX_INFO_FRAME:
+	case MAC802154_HWSIM_CMD_TX_INFO_FRAME:
 		hwsim_tx_info_frame_received_nl(skb, &info);
 		break;
 	case HWSIM_CMD_REPORT_PMSR:

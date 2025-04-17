@@ -37,7 +37,7 @@ typedef uint64_t u64;
 #define IEEE80211_NUM_ACS 4
 
 #ifndef ETH_ALEN
-#define ETH_ALEN 6
+#define ETH_ALEN 8
 #endif
 
 #define IEEE802154_MAX_DATA_LEN  90

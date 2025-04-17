@@ -38,7 +38,7 @@ pthread_rwlock_t snr_lock = PTHREAD_RWLOCK_INITIALIZER;
 int add_station(struct wmediumd *ctx, const u8 addr[]) {
     struct station *sta_loop;
     list_for_each_entry(sta_loop, &ctx->stations, list) {
-        if (memcmp(sta_loop->addr, addr, ETH_ALEN) == 0)
+        if (memcmp(sta_loop->extended_addr, addr, ETH_ALEN) == 0)
             return -EEXIST;
     }
 
@@ -118,7 +118,7 @@ int add_station(struct wmediumd *ctx, const u8 addr[]) {
         goto out;
     }
     station->index = (int) oldnum;
-    memcpy(station->addr, addr, ETH_ALEN);
+    memcpy(station->extended_addr, addr, ETH_ALEN);
     memcpy(station->hwaddr, addr, ETH_ALEN);
     station->isap = AP_DEFAULT;
     station->gain = GAIN_DEFAULT;
@@ -243,7 +243,7 @@ int del_station_by_mac(struct wmediumd *ctx, const u8 *addr) {
     int ret;
     struct station *station;
     list_for_each_entry(station, &ctx->stations, list) {
-        if (memcmp(addr, station->addr, ETH_ALEN) == 0) {
+        if (memcmp(addr, station->extended_addr, ETH_ALEN) == 0) {
             ret = del_station(ctx, station);
             goto out;
         }

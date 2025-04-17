@@ -2,6 +2,9 @@
 #define __MAC802154_HWSIM_H
 
 
+#define IEEE802154_MAX_FRAME_LEN 127
+#define IEEE802154_MIN_HDR_LEN 3
+//#define IEEE802154_MAX_DATA_LEN (IEEE802154_PHY_FRAME_LEN - IEEE802154_MAX_HEADER_LEN)
 /**
  * enum hwsim_tx_control_flags - flags to describe transmission info/status
  *
