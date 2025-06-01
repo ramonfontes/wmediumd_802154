@@ -3,3 +3,9 @@
 modules.order
 Module.symvers
 snap
+.bash_history
+.vscode
+.dbus/session-bus
+.config/wireshark
+*.cmd
+*.mod*

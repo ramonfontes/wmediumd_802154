@@ -1,1 +1,0 @@
-savedcmd_/home/gama/external/git/wmediumd_802154/hwsim/Module.symvers :=  scripts/mod/modpost -M -m -a      -o /home/gama/external/git/wmediumd_802154/hwsim/Module.symvers -T /home/gama/external/git/wmediumd_802154/hwsim/modules.order -i Module.symvers -e 
