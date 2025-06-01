@@ -360,12 +360,7 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
 	int snr = SNR_DEFAULT;
 
 	u8 *dest = NULL;
-	
-	/*if (hdr->dest.mode == IEEE802154_ADDR_SHORT) {
-		dest = (u8 *)&hdr->dest.short_addr;
-	} else if (hdr->dest.mode == IEEE802154_ADDR_EXTENDED) {
-		dest = (u8 *)&hdr->dest.extended_addr;
-	}*/
+
 	dest = (u8 *)&hdr->dest.extended_addr;
 
 	uint8_t *ptr = hdr;
@@ -390,7 +385,6 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
 				station->index, deststa->index);
 		snr += ctx->get_fading_signal(ctx);
 	}
-	//}
 
 	frame->lqi = snr + NOISE_LEVEL;
 	
@@ -490,15 +484,40 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
  */
 static int send_tx_info_frame_nl(struct wmediumd *ctx, struct frame *frame)
 {
+	struct ieee802154_hdr *hdr = (void *)frame->data;
 	struct nl_sock *sock = ctx->sock;
 	struct nl_msg *msg;
+	struct nlattr *edge_nest;
+	struct station *deststa;
 	int ret;
+
+	u32 radio_id = frame->sender->index;
+
+	u8 dest[8];
+	for (int i = 0; i < 8; i++)
+		dest[i] = frame->data[5 + 7 - i];
+
+	uint8_t *ptr = hdr;
+
+	uint16_t fcf = ptr[0] | (ptr[1] << 8); // Get FCF
+	
+	// Search for the mode
+	uint8_t dest_mode = (fcf >> 10) & 0x3;
+	
+	if (dest_mode == IEEE802154_ADDR_SHORT)
+		deststa = NULL;
+	else
+		deststa = get_station_by_addr(ctx, dest, 8);
+
 	
 	msg = nlmsg_alloc();
 	if (!msg) {
 		w_logf(ctx, LOG_ERR, "Error allocating new message MSG!\n");
 		return -1;
 	}
+
+	if (!deststa)
+		goto out;
 
 	if (genlmsg_put(msg, NL_AUTO_PID, NL_AUTO_SEQ, ctx->family_id,
 			0, NLM_F_REQUEST, MAC802154_HWSIM_CMD_TX_INFO_FRAME,
@@ -508,14 +527,35 @@ static int send_tx_info_frame_nl(struct wmediumd *ctx, struct frame *frame)
 		goto out;
 	}
 
-	if (nla_put(msg, MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER, EXTENDED_ADDR_LEN,
+	if (nla_put_u32(msg, MAC802154_HWSIM_ATTR_RADIO_ID, radio_id)) {
+		w_logf(ctx, LOG_ERR, "%s: Failed to set RADIO_ID\n", __func__);
+		ret = -1;
+		goto out;
+	}
+
+	edge_nest = nla_nest_start(msg, MAC802154_HWSIM_ATTR_RADIO_EDGE);
+	if (!edge_nest) {
+		w_logf(ctx, LOG_ERR, "%s: Failed to start RADIO_EDGE\n", __func__);
+		ret = -1;
+		goto out;
+	}
+
+	if (nla_put_u32(msg, MAC802154_HWSIM_EDGE_ATTR_ENDPOINT_ID, deststa->index) ||
+		nla_put_u8(msg, MAC802154_HWSIM_EDGE_ATTR_LQI, 250)) {
+		w_logf(ctx, LOG_ERR, "%s: Failed to fill EDGE attrs\n", __func__);
+		ret = -1;
+		goto out;
+	}
+	nla_nest_end(msg, edge_nest); 
+
+	/*if (nla_put(msg, MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER, EXTENDED_ADDR_LEN,
 		    frame->sender->hwaddr) ||
 	    nla_put_u32(msg, MAC802154_HWSIM_ATTR_FLAGS, frame->flags) ||
 	    nla_put_u64(msg, MAC802154_HWSIM_ATTR_COOKIE, frame->cookie)) {
 			w_logf(ctx, LOG_ERR, "%s: Failed to fill a payload\n", __func__);
 			ret = -1;
 			goto out;
-	}
+	}*/
 	
 	ret = nl_send_auto_complete(sock, msg);
 	if (ret < 0) {

@@ -107,7 +107,7 @@ tmux select-window -t $session:1
 #tmux send-keys -t $session:2 'wireshark -i pan1 &' C-m
 
 tmux select-window -t $session:2
-tmux send-keys -t $session:2 'sleep 10; ping -c 2 fe80::1' C-m
+tmux send-keys -t $session:2 'sleep 2; ping -c 2 fe80::1' C-m
 
 # start wmediumd
 win=$session:$((winct+1)).0

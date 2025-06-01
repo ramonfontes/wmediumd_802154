@@ -1163,39 +1163,59 @@ static int hwsim_set_edge_lqi(struct sk_buff *msg, struct genl_info *info)
 static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
 					   struct genl_info *info)
 {
-
+	struct nlattr *edge_attrs[MAC802154_HWSIM_EDGE_ATTR_MAX + 1];
+	struct hwsim_edge_info *einfo, *einfo_old;
 	struct hwsim_phy *data2;
+	struct hwsim_phy *phy_v0;
+	struct hwsim_edge *e;
 	u64 ret_skb_cookie;
 	const u8 *src;
 	unsigned int hwsim_flags;
+	u8 lqi;
+	u32 v0, v1;
 	
-	if (!info->attrs[MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER] ||
-	    !info->attrs[MAC802154_HWSIM_ATTR_FLAGS] ||
-	    !info->attrs[MAC802154_HWSIM_ATTR_COOKIE]
-		)
-		goto out;
+	if (nla_parse_nested_deprecated(edge_attrs, MAC802154_HWSIM_EDGE_ATTR_MAX, info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE], hwsim_edge_policy, NULL))
+		return -EINVAL;
 
-	src = (void *)nla_data(info->attrs[MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER]);
-	hwsim_flags = nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_FLAGS]);
-	ret_skb_cookie = nla_get_u64(info->attrs[MAC802154_HWSIM_ATTR_COOKIE]);
+	if (!edge_attrs[MAC802154_HWSIM_EDGE_ATTR_ENDPOINT_ID] ||
+	    !edge_attrs[MAC802154_HWSIM_EDGE_ATTR_LQI])
+		return -EINVAL;
 
-	data2 = get_hwsim_data_ref_from_addr(src);
-	if (!data2)
-		goto out;
+	v0 = nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID]);
+	v1 = nla_get_u32(edge_attrs[MAC802154_HWSIM_EDGE_ATTR_ENDPOINT_ID]);
+	lqi = nla_get_u8(edge_attrs[MAC802154_HWSIM_EDGE_ATTR_LQI]);
 	
-	if (!hwsim_virtio_enabled) {
-		if (hwsim_net_get_netgroup(genl_info_net(info)) !=
-		    data2->netgroup)
-			goto out;
-
-		if (info->snd_portid != data2->wmediumd)
-			goto out;
+	mutex_lock(&hwsim_phys_lock);
+	phy_v0 = hwsim_get_radio_by_id(v0);
+	if (!phy_v0) {
+		mutex_unlock(&hwsim_phys_lock);
+		return -ENOENT;
 	}
 
-	return 0;
-out:
-	return -EINVAL;
+	einfo = kzalloc(sizeof(*einfo), GFP_KERNEL);
+	if (!einfo) {
+		mutex_unlock(&hwsim_phys_lock);
+		return -ENOMEM;
+	}
 
+	rcu_read_lock();
+	list_for_each_entry_rcu(e, &phy_v0->edges, list) {
+		if (e->endpoint->idx == v1) {
+			einfo->lqi = lqi;
+			einfo_old = rcu_replace_pointer(e->info, einfo,
+							lockdep_is_held(&hwsim_phys_lock));
+			rcu_read_unlock();
+			kfree_rcu(einfo_old, rcu);
+			mutex_unlock(&hwsim_phys_lock);
+			return 0;
+		}
+	}
+	rcu_read_unlock();
+
+	kfree(einfo);
+	mutex_unlock(&hwsim_phys_lock);
+
+	return -ENOENT;
 }
 
 static void hwsim_register_wmediumd(struct net *net, u32 portid)
