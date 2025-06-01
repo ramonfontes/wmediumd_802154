@@ -89,6 +89,10 @@ for addr in ${addrs[@]}; do
 	tmux send-keys -t $win 'ip -6 addr flush pan'$i'' C-m
  	tmux send-keys -t $win 'ip -6 addr add fe80::'$((i+1))'/64 dev pan'$i'' C-m
 
+	tmux send-keys -t $win 'iwpan phy '$phy' interface add mon'$i' type monitor' C-m
+	tmux send-keys -t $win 'ifconfig mon'$i' up' C-m
+	
+
 	i=$((i+1))
 done
 
@@ -98,10 +102,12 @@ tmux send-keys -t $session:0.0 'wpan-hwsim edge add 0 1 >/dev/null 2>&1' C-m
 tmux send-keys -t $session:0.0 'wpan-hwsim edge add 1 0 >/dev/null 2>&1' C-m
 
 tmux select-window -t $session:1
-tmux send-keys -t $session:1 'sleep 2; ping -c 2 fe80::2' C-m
+#tmux send-keys -t $session:1 'sleep 2; ping -c 2 fe80::2' C-m
+#tmux send-keys -t $session:1 'wireshark -i pan0 &' C-m
+#tmux send-keys -t $session:2 'wireshark -i pan1 &' C-m
 
 tmux select-window -t $session:2
-tmux send-keys -t $session:2 'sleep 2; ping -c 2 fe80::1' C-m
+tmux send-keys -t $session:2 'sleep 10; ping -c 2 fe80::1' C-m
 
 # start wmediumd
 win=$session:$((winct+1)).0
