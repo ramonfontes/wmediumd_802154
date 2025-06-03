@@ -178,7 +178,7 @@ struct hwsim_phy {
 static const struct rhashtable_params hwsim_rht_params = {
 	.nelem_hint = 2,
 	.automatic_shrinking = true,
-	.key_len = 8, //ETH_ALEN
+	.key_len = 8, /* ETH_ALEN */
 	.key_offset = offsetof(struct hwsim_phy, ieee_addr),
 	.head_offset = offsetof(struct hwsim_phy, rht),
 };
@@ -219,7 +219,7 @@ static int hwsim_update_pib(struct ieee802154_hw *hw, u8 page, u8 channel,
 	if (!pib)
 		return -ENOMEM;
 
-	pib_old = rtnl_dereference(phy->pib);	
+	pib_old = rtnl_dereference(phy->pib);
 
 	pib->page = page;
 	pib->channel = channel;
@@ -345,7 +345,7 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 	void *msg_head;
 	unsigned int hwsim_flags = 0;
 	uintptr_t cookie;
-	
+
 	skb = genlmsg_new(GENLMSG_DEFAULT_SIZE, GFP_ATOMIC);
 
 	if (skb == NULL)
@@ -381,7 +381,7 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 
 	genlmsg_end(skb, msg_head);
 
-	struct sk_buff *skb_2 = skb_clone(my_skb, GFP_ATOMIC); // ou pskb_copy()
+	struct sk_buff *skb_2 = skb_clone(my_skb, GFP_ATOMIC);
 	if (!skb_2)
 		goto err_free_txskb;
 
@@ -418,7 +418,7 @@ static void hwsim_hw_receive(struct ieee802154_hw *hw, struct sk_buff *skb,
 		dev_dbg(hw->parent, "invalid frame\n");
 		goto drop;
 	}
-		
+
 	memcpy(&hdr, skb->data, 3);
 
 	/* Level 4 filtering: Frame fields validity */
@@ -552,7 +552,7 @@ static int hwsim_hw_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 					einfo = rcu_dereference(e->info);
 					if (newskb)
 						hwsim_hw_receive(e->endpoint->hw, newskb, einfo->lqi);
-			}	
+			}
 		}
 		rcu_read_unlock();
 
@@ -573,7 +573,7 @@ static int hwsim_cloned_frame_received_nl(struct sk_buff *skb_2,
 	struct hwsim_pib *current_pib, *endpoint_pib;
 	struct hwsim_edge *e;
 	struct hwsim_edge_info *einfo;
-	
+
 	if (!info->attrs[MAC802154_HWSIM_ATTR_ADDR_RECEIVER] ||
 	    !info->attrs[MAC802154_HWSIM_ATTR_FRAME])
 		goto out;
@@ -581,10 +581,10 @@ static int hwsim_cloned_frame_received_nl(struct sk_buff *skb_2,
 	dst = (void *)nla_data(info->attrs[MAC802154_HWSIM_ATTR_ADDR_RECEIVER]);
 	frame_data_len = nla_len(info->attrs[MAC802154_HWSIM_ATTR_FRAME]);
 	frame_data = (void *)nla_data(info->attrs[MAC802154_HWSIM_ATTR_FRAME]);
-	
+
 	if (frame_data_len < IEEE802154_MIN_HDR_LEN ||
-    	frame_data_len > IEEE802154_MAX_FRAME_LEN)
-    	goto err;
+		frame_data_len > IEEE802154_MAX_FRAME_LEN)
+		goto err;
 
 	/* Allocate new skb here */
 	skb = alloc_skb(frame_data_len, GFP_KERNEL);
@@ -593,9 +593,9 @@ static int hwsim_cloned_frame_received_nl(struct sk_buff *skb_2,
 
 	/* Copy the data */
 	skb_put_data(skb, frame_data, frame_data_len);
-	
+
 	ieee802154_hdr_peek_addrs(skb, hdr);
-	
+
 	u8 *frame = frame_data;
 	u16 fcf = le16_to_cpup((__le16 *)frame);
 	u8 *ptr = frame + 3;
@@ -605,19 +605,22 @@ static int hwsim_cloned_frame_received_nl(struct sk_buff *skb_2,
 	u8 src_addr_mode = (fcf >> 14) & 0x3;
 	bool intra_pan = (fcf >> 6) & 0x1;
 
-	// skip the destination
+	/* skip the destination */
 	if (dst_addr_mode == IEEE802154_ADDR_SHORT) {
-		ptr += 2 + 2; // dest_pan + short addr
+		/* dest_pan + short addr */
+		ptr += 2 + 2;
 	} else if (dst_addr_mode == IEEE802154_ADDR_LONG) {
-		ptr += 2 + 8; // dest_pan + extended addr
+		/* dest_pan + extended addr */
+		ptr += 2 + 8;
 	}
 
+ 	/* src_pan */
 	if (!intra_pan)
-		ptr += 2; // src_pan
+		ptr += 2;
 
 	if (src_addr_mode == IEEE802154_ADDR_SHORT)
 		goto out;
-	else if (src_addr_mode == IEEE802154_ADDR_LONG) 
+	else if (src_addr_mode == IEEE802154_ADDR_LONG)
 		memcpy(src_addr, ptr, 8);
 
 	data2 = get_hwsim_data_ref_from_addr(src_addr);
@@ -627,7 +630,7 @@ static int hwsim_cloned_frame_received_nl(struct sk_buff *skb_2,
 	struct ieee802154_hw *hw = data2->hw;
 
 	struct hwsim_phy *current_phy = hw->priv;
-	
+
 	rcu_read_lock();
 	current_pib = rcu_dereference(current_phy->pib);
 	list_for_each_entry_rcu(e, &current_phy->edges, list) {
@@ -646,35 +649,18 @@ static int hwsim_cloned_frame_received_nl(struct sk_buff *skb_2,
 			struct ieee802154_hw *hw1 = e->endpoint->hw;
 			struct hwsim_phy *phy1 = hw1->priv;
 			u8* addr64 = phy1->ieee_addr;
-							
+
 			if (dst_addr_mode == IEEE802154_ADDR_LONG && memcmp(dst, addr64, 8) != 0)
 				continue;
 
 			struct sk_buff *newskb = pskb_copy(skb, GFP_ATOMIC);
 			einfo = rcu_dereference(e->info);
 			if (newskb)
-				hwsim_hw_receive(e->endpoint->hw, newskb, einfo->lqi);	
+				hwsim_hw_receive(e->endpoint->hw, newskb, einfo->lqi);
 		}
 	}
 	rcu_read_unlock();
-	
-	/*if (data2->use_chanctx) {
-		if (data2->tmp_chan)
-			channel = data2->tmp_chan;
-	} else {
-		channel = data2->channel;
-	}*/
-	
-	/*if (!hwsim_virtio_enabled) {
-		if (hwsim_net_get_netgroup(genl_info_net(info)) !=
-		    data2->netgroup)
-			goto out;
 
-		if (info->snd_portid != data2->wmediumd)
-			goto out;
-	}*/
-
-	//ieee802154_xmit_complete(hw, skb, false);
 	return 0;
 err:
 	pr_debug("mac802154_hwsim: error occurred in %s\n", __func__);
@@ -1182,15 +1168,11 @@ static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
 {
 	struct nlattr *edge_attrs[MAC802154_HWSIM_EDGE_ATTR_MAX + 1];
 	struct hwsim_edge_info *einfo, *einfo_old;
-	struct hwsim_phy *data2;
 	struct hwsim_phy *phy_v0;
 	struct hwsim_edge *e;
-	u64 ret_skb_cookie;
-	const u8 *src;
-	unsigned int hwsim_flags;
 	u8 lqi;
 	u32 v0, v1;
-	
+
 	if (nla_parse_nested_deprecated(edge_attrs, MAC802154_HWSIM_EDGE_ATTR_MAX, info->attrs[MAC802154_HWSIM_ATTR_RADIO_EDGE], hwsim_edge_policy, NULL))
 		return -EINVAL;
 
@@ -1201,7 +1183,7 @@ static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
 	v0 = nla_get_u32(info->attrs[MAC802154_HWSIM_ATTR_RADIO_ID]);
 	v1 = nla_get_u32(edge_attrs[MAC802154_HWSIM_EDGE_ATTR_ENDPOINT_ID]);
 	lqi = nla_get_u8(edge_attrs[MAC802154_HWSIM_EDGE_ATTR_LQI]);
-	
+
 	mutex_lock(&hwsim_phys_lock);
 	phy_v0 = hwsim_get_radio_by_id(v0);
 	if (!phy_v0) {
@@ -1238,7 +1220,7 @@ static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
 static void hwsim_register_wmediumd(struct net *net, u32 portid)
 {
 	struct hwsim_phy *data;
-	
+
 	hwsim_net_set_wmediumd(net, portid);
 
 	spin_lock_bh(&hwsim_radio_lock);
@@ -1253,7 +1235,7 @@ static int hwsim_register_received_nl(struct sk_buff *msg, struct genl_info *inf
 {
 	struct net *net = genl_info_net(info);
 	int chans = 1;
-	
+
 	if (chans > 1)
 		return -EOPNOTSUPP;
 
@@ -1432,10 +1414,6 @@ me_fail:
 	return -ENOMEM;
 }
 
-struct hwsim_new_radio_params {
-	
-};
-
 static int hwsim_add_one(struct genl_info *info, struct device *dev,
 			 bool init)
 {
@@ -1458,7 +1436,7 @@ static int hwsim_add_one(struct genl_info *info, struct device *dev,
 	else
 		net = &init_net;
 	wpan_phy_net_set(hw->phy, net);
-	
+
 	phy = hw->priv;
 	phy->hw = hw;
 
@@ -1978,7 +1956,7 @@ static __init int hwsim_init_module(void)
 
 	if (radios < 0)
 		return -EINVAL;
-	
+
 	err = rhashtable_init(&hwsim_radios_rht, &hwsim_rht_params);
 	if (err)
 		return err;
@@ -2030,7 +2008,7 @@ out_free_rht:
 
 static __exit void hwsim_remove_module(void)
 {
-    pr_debug("mac80211_hwsim: unregister radios\n");
+	pr_debug("mac80211_hwsim: unregister radios\n");
 	hwsim_unregister_virtio_driver();
 	hwsim_exit_netlink();
 	rhashtable_destroy(&hwsim_radios_rht);
