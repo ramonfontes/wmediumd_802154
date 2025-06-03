@@ -30,12 +30,6 @@
 #include <linux/virtio_ids.h>
 #include <linux/virtio_config.h>
 
-#define WARN_QUEUE 100
-#define MAX_QUEUE 200
-#define HWSIM_SKB_CB(__skb) ((struct hwsim_cb *)&((__skb)->cb[0]))
-#define IEEE802154_FCF_FRAME_TYPE_MASK 0x0007
-#define IEEE802154_FRAME_TYPE_DATA     0x0001
-
 MODULE_DESCRIPTION("Software simulator of IEEE 802.15.4 radio(s) for mac802154");
 MODULE_LICENSE("GPL");
 
@@ -152,14 +146,6 @@ struct hwsim_phy {
 	struct sk_buff *pending_skb;
 	struct device *dev;
 	struct mutex mutex;
-
-	/* Stats */
-	u64 tx_pkts;
-	u64 rx_pkts;
-	u64 tx_bytes;
-	u64 rx_bytes;
-	u64 tx_dropped;
-	u64 tx_failed;
 
 	bool destroy_on_close;
 	u32 portid;
@@ -499,7 +485,6 @@ static void hwsim_hw_receive(struct ieee802154_hw *hw, struct sk_buff *skb,
 		}
 	}
 
-
 	rcu_read_unlock();
 
 	ieee802154_rx_irqsafe(hw, skb, lqi);
@@ -523,7 +508,6 @@ static int hwsim_hw_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 
 	/* wmediumd mode check */
 	_portid = READ_ONCE(current_phy->wmediumd);
-
 
 	if (_portid || hwsim_virtio_enabled){
 		mac802154_hwsim_tx_frame_nl(hw, skb, _portid);
@@ -614,7 +598,7 @@ static int hwsim_cloned_frame_received_nl(struct sk_buff *skb_2,
 		ptr += 2 + 8;
 	}
 
- 	/* src_pan */
+	/* src_pan */
 	if (!intra_pan)
 		ptr += 2;
 

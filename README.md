@@ -3,7 +3,7 @@
 This is the first attempt at implementing a wmediumd-like mechanism for `mac802154_hwsim`. The implementation will be developed while considering `tests/interference.sh` for testing.
 
 Patches submitted to the Linux Kernel:
-* [https://patchwork.kernel.org/project/linux-wpan/patch/20250325165312.26938-1-ramonreisfontes@gmail.com/](https://patchwork.kernel.org/project/linux-wpan/list/?series=&submitter=176431&state=*&q=&archive=&delegate=)
+* [https://patchwork.kernel.org/project/linux-wpan/patch/20250603190506.6382-1-ramonreisfontes@gmail.com/](https://patchwork.kernel.org/project/linux-wpan/patch/20250603190506.6382-1-ramonreisfontes@gmail.com/)
 
 ## Wmediumd
 
@@ -90,3 +90,7 @@ PING fe80::3 (fe80::3) 56 data bytes
 --- fe80::3 ping statistics ---
 2 packets transmitted, 0 received, 100% packet loss, time 1054ms
 ```
+
+# Running wmediumd_802154 with Mininet-WiFi
+
+[This script](https://github.com/intrig-unicamp/mininet-wifi/blob/master/examples/wmediumd_interference_lowpan.py) allows you to run wmediumd_802154 with a custom 802.15.4 network topology.
