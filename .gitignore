@@ -9,3 +9,4 @@ snap
 .config/wireshark
 *.cmd
 *.mod*
+.local*
