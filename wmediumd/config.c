@@ -161,6 +161,7 @@ static int calc_path_loss_log_distance(void *model_param,
 	 * https://en.wikipedia.org/wiki/Log-distance_path_loss_model
 	 */
 	PL = PL0 + 10.0 * param->path_loss_exponent * log10(d) + param->Xg;
+
 	return PL;
 }
 /*
@@ -669,7 +670,7 @@ int load_config(struct wmediumd *ctx, const char *file, const char *per_file, bo
 		}
 		for (i = 0; i < ctx->num_stas; i++)
 			for (j = 0; j < ctx->num_stas; j++)
-				ctx->intf[i * ctx->num_stas + j].lqi = -200;
+				ctx->intf[i * ctx->num_stas + j].lqi = 200;
 	} else {
 		ctx->intf = NULL;
 	}

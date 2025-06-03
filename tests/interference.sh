@@ -1,10 +1,8 @@
 #!/bin/bash
-# 3 mesh nodes in a linear topology
-# 4 additional mesh nodes exists to prevent transmission
-# When enable_interference=true, ping always fails.
-# (This test is not perfect because of random values)
+# 3 sensor nodes in a tree topology
+# transmission between 0 and 2 fails due to excessive distance between them
 
-num_nodes=2
+num_nodes=3
 session=wmediumd_802154
 subnet=10.10.10
 macfmt='02:00:00:00:00:00:00:%02x'
@@ -23,27 +21,6 @@ fi
 for i in $(seq 0 $((num_nodes-1))); do
     addrs[$i]=$(printf "$macfmt" "$i")
 done
-
-cat <<__EOM > diamond.cfg
-ifaces :
-{
-	ids = [
-		"02:00:00:00:00:00:00:00",
-		"02:00:00:00:00:00:00:01"
-	];
-	enable_interference = true;
-};
-
-path_loss :
-{
-	positions = (
-		(-70.0,   0.0),
-		(  0.0,   0.0)
-	);
-	tx_powers = (15.0, 15.0);
-	model_params = ("log_distance", 3.5, 0.0);
-};
-__EOM
 
 tmux new -s $session -d
 
@@ -87,11 +64,7 @@ for addr in ${addrs[@]}; do
 	tmux send-keys -t $win 'ip link set wpan'$i' up' C-m
  	tmux send-keys -t $win 'ip link set pan'$i' up' C-m
 	tmux send-keys -t $win 'ip -6 addr flush pan'$i'' C-m
- 	tmux send-keys -t $win 'ip -6 addr add fe80::'$((i+1))'/64 dev pan'$i'' C-m
-
-	tmux send-keys -t $win 'iwpan phy '$phy' interface add mon'$i' type monitor' C-m
-	tmux send-keys -t $win 'ifconfig mon'$i' up' C-m
-	
+ 	tmux send-keys -t $win 'ip -6 addr add fe80::'$((i+1))'/64 dev pan'$i'' C-m	
 
 	i=$((i+1))
 done
@@ -101,13 +74,14 @@ winct=$i
 tmux send-keys -t $session:0.0 'wpan-hwsim edge add 0 1 >/dev/null 2>&1' C-m
 tmux send-keys -t $session:0.0 'wpan-hwsim edge add 1 0 >/dev/null 2>&1' C-m
 
-tmux select-window -t $session:1
-#tmux send-keys -t $session:1 'sleep 2; ping -c 2 fe80::2' C-m
-#tmux send-keys -t $session:1 'wireshark -i pan0 &' C-m
-#tmux send-keys -t $session:2 'wireshark -i pan1 &' C-m
+tmux send-keys -t $session:0.0 'wpan-hwsim edge add 0 2 >/dev/null 2>&1' C-m
+tmux send-keys -t $session:0.0 'wpan-hwsim edge add 2 0 >/dev/null 2>&1' C-m
 
-tmux select-window -t $session:2
-tmux send-keys -t $session:2 'sleep 2; ping -c 2 fe80::1' C-m
+tmux select-window -t $session:1
+tmux send-keys -t $session:1 'sleep 2; ping -c 2 fe80::2' C-m
+
+tmux select-window -t $session:1
+tmux send-keys -t $session:1 'sleep 2; ping -c 2 fe80::3' C-m
 
 # start wmediumd
 win=$session:$((winct+1)).0

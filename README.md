@@ -25,7 +25,7 @@ available.
 
 Build the required modules and binaries:
 ```
-$ cd wmediumd802154
+$ cd wmediumd_802154
 $ make
 $ sudo make install
 ```
@@ -35,8 +35,10 @@ $ sudo make install
 If you're testing directly with a modified kernel module, you can load it manually:
 ``` 
 $ cd hwsim
+$ make
 $ sudo modprobe mac802154_hwsim 
-$ sudo insmod mac802154_hwsim.ko
+$ sudo rmmod mac802154_hwsim 
+$ sudo insmod mac802154_hwsim.ko radios=3
 ```
 
 # Using Wmediumd
@@ -57,8 +59,34 @@ sudo ./interference.sh
 
 Start the wmediumd_802154 daemon using socket mode and your chosen config file:
 ```
-sudo wmediumd_802154 -s -c diamond.cfg
+sudo wmediumd_802154 -s -c tree.cfg
 ```
 
+This command launches wmediumd_802154, which connects to the mac802154_hwsim module via netlink and simulates interference and packet loss between IEEE 802.15.4 virtual devices according to the configuration in tree.cfg.
 
-This command launches wmediumd_802154, which connects to the mac802154_hwsim module via netlink and simulates interference and packet loss between IEEE 802.15.4 virtual devices according to the configuration in diamond.cfg.
+## Terminal 1: Pinging virtual devices
+
+You can now test connectivity between the virtual sensors using IPv6 link-local addresses:
+
+Ping from sensor0 to sensor1:
+
+```
+ping -c 2 fe80::2
+PING fe80::2 (fe80::2) 56 data bytes
+64 bytes from fe80::2%pan0: icmp_seq=1 ttl=64 time=2.33 ms
+64 bytes from fe80::2%pan0: icmp_seq=2 ttl=64 time=1.77 ms
+
+--- fe80::2 ping statistics ---
+2 packets transmitted, 2 received, 0% packet loss, time 1002ms
+rtt min/avg/max/mdev = 1.770/2.051/2.332/0.281 ms
+
+```
+
+Ping from sensor1 to sensor2:
+```
+ping -c 2 fe80::3
+PING fe80::3 (fe80::3) 56 data bytes
+^C
+--- fe80::3 ping statistics ---
+2 packets transmitted, 0 received, 100% packet loss, time 1054ms
+```

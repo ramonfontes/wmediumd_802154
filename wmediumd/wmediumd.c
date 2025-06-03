@@ -216,7 +216,7 @@ static int set_interference_duration(struct wmediumd *ctx, int src_idx,
 		return 0;
 
 	if (lqi >= CCA_THRESHOLD)
-		return 0;
+		return 0;	
 
     medium_id = ctx->sta_array[src_idx]->medium_id;
 	for (i = 0; i < ctx->num_stas; i++) {
@@ -314,6 +314,16 @@ void detect_mediums(struct wmediumd *ctx, struct station *src, struct station *d
     }
 }
 
+void print_extended_addr(u8 *addr) {
+    printf("Extended Address: ");
+    for (int i = 0; i < 8; i++) {
+        printf("%02X", addr[i]);
+        if (i < 7) printf(":");
+    }
+    printf("\n");
+}
+
+
 void queue_frame(struct wmediumd *ctx, struct station *station,
 		 struct frame *frame, char *data, int dest_addr_len)
 {
@@ -359,9 +369,11 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
 	//cw = queue->cw_min;
 	int snr = SNR_DEFAULT;
 
-	u8 *dest = NULL;
+	u8 dest[8];
+	for (int i = 0; i < 8; i++)
+		dest[i] = frame->data[5 + 7 - i];
 
-	dest = (u8 *)&hdr->dest.extended_addr;
+//	 print_extended_addr(dest);
 
 	uint8_t *ptr = hdr;
 
@@ -373,7 +385,7 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
 	if (dest_mode == IEEE802154_ADDR_SHORT)
 		deststa = NULL;
 	else
-		deststa = get_station_by_addr(ctx, dest, dest_addr_len);
+		deststa = get_station_by_addr(ctx, dest, 8);
 	
 	if (deststa) {
 		w_logf(ctx, LOG_DEBUG, "Packet from " MAC_FMT "(%d|%s) to " MAC_FMT "(%d|%s)\n",
@@ -508,7 +520,6 @@ static int send_tx_info_frame_nl(struct wmediumd *ctx, struct frame *frame)
 		deststa = NULL;
 	else
 		deststa = get_station_by_addr(ctx, dest, 8);
-
 	
 	msg = nlmsg_alloc();
 	if (!msg) {
@@ -674,7 +685,7 @@ int send_cloned_frame_msg(struct wmediumd *ctx, struct station *dst,
 	}
 	
 	ret = 0;
-	//nl_msg_dump(msg, stdout);
+	nl_msg_dump(msg, stdout);
 
 out:
 	nlmsg_free(msg);
@@ -689,10 +700,12 @@ void deliver_frame(struct wmediumd *ctx, struct frame *frame)
 
 	if (frame->flags & MAC802154_HWSIM_TX_STAT_ACK) {
 		/* rx the frame on the dest interface */
+
 		list_for_each_entry(station, &ctx->stations, list) {
-			
+
 			if (memcmp(src, station->extended_addr, EXTENDED_ADDR_LEN) == 0)
 				continue;
+	
             int rate_idx;
 
 			u8 *dest = NULL;
@@ -894,7 +907,8 @@ static int process_recvd_data(struct wmediumd *ctx, struct nlmsghdr *nlh)
 	u8 dest_addr_len = 0;
 	uint8_t src_buf[8];
 	
-	if (gnlh->cmd == MAC802154_HWSIM_CMD_FRAME) {    		
+	if (gnlh->cmd == MAC802154_HWSIM_CMD_FRAME) {
+		
 		pthread_rwlock_rdlock(&snr_lock);
 		/* we get the attributes*/
 		genlmsg_parse(nlh, 0, attrs, MAC802154_HWSIM_ATTR_MAX, NULL);

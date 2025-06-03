@@ -338,7 +338,7 @@ extern int hwsim_tx_virtio(struct hwsim_phy *phy,
 #endif
 
 static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff *my_skb,
-			     int dst_portid, u8 lqi)
+			     int dst_portid)
 {
 	struct sk_buff *skb;
 	struct hwsim_phy *phy = hw->priv;
@@ -361,6 +361,7 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 	u8 addr_buf[8];
 	put_unaligned_le64(hw->phy->perm_extended_addr, addr_buf);
 	put_unaligned_le64(hw->phy->perm_extended_addr, phy->ieee_addr);
+
 	if (nla_put(skb, MAC802154_HWSIM_ATTR_ADDR_TRANSMITTER,
 		    8, addr_buf))
 		goto nla_put_failure;
@@ -380,6 +381,10 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 
 	genlmsg_end(skb, msg_head);
 
+	struct sk_buff *skb_2 = skb_clone(my_skb, GFP_ATOMIC); // ou pskb_copy()
+	if (!skb_2)
+		goto err_free_txskb;
+
 	if (hwsim_virtio_enabled) {
 		if (hwsim_tx_virtio(phy, skb))
 			goto err_free_txskb;
@@ -389,7 +394,7 @@ static void mac802154_hwsim_tx_frame_nl(struct ieee802154_hw *hw, struct sk_buff
 	}
 
 	/* Enqueue the packet */
-	skb_queue_tail(&phy->pending, my_skb);
+	skb_queue_tail(&phy->pending, skb_2);
 
 	return;
 
@@ -519,36 +524,41 @@ static int hwsim_hw_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 	/* wmediumd mode check */
 	_portid = READ_ONCE(current_phy->wmediumd);
 
-	rcu_read_lock();
-	current_pib = rcu_dereference(current_phy->pib);
-	list_for_each_entry_rcu(e, &current_phy->edges, list) {
-		/* Can be changed later in rx_irqsafe, but this is only a
-		* performance tweak. Received radio should drop the frame
-		* in mac802154 stack anyway... so we don't need to be
-		* 100% of locking here to check on suspended
-		*/
-		if (e->endpoint->suspended)
-			continue;
 
-		endpoint_pib = rcu_dereference(e->endpoint->pib);
-		if (current_pib->page == endpoint_pib->page &&
-			current_pib->channel == endpoint_pib->channel) {
-			struct sk_buff *newskb = pskb_copy(skb, GFP_ATOMIC);
+	if (_portid || hwsim_virtio_enabled){
+		mac802154_hwsim_tx_frame_nl(hw, skb, _portid);
 
-			einfo = rcu_dereference(e->info);
-			if (newskb){
-				if (_portid || hwsim_virtio_enabled)
-					mac802154_hwsim_tx_frame_nl(e->endpoint->hw, newskb, _portid, einfo->lqi);
-				else
-					hwsim_hw_receive(e->endpoint->hw, newskb, einfo->lqi);
-			}
-		}
+		ieee802154_xmit_complete(hw, skb, false);
+		return 0;
 	}
-	rcu_read_unlock();
-	ieee802154_xmit_complete(hw, skb, false);
-	
+	else{
+		rcu_read_lock();
+		current_pib = rcu_dereference(current_phy->pib);
 
-	return 0;
+		list_for_each_entry_rcu(e, &current_phy->edges, list) {
+			/* Can be changed later in rx_irqsafe, but this is only a
+			* performance tweak. Received radio should drop the frame
+			* in mac802154 stack anyway... so we don't need to be
+			* 100% of locking here to check on suspended
+			*/
+			if (e->endpoint->suspended)
+				continue;
+
+			endpoint_pib = rcu_dereference(e->endpoint->pib);
+			if (current_pib->page == endpoint_pib->page &&
+				current_pib->channel == endpoint_pib->channel) {
+					struct sk_buff *newskb = pskb_copy(skb, GFP_ATOMIC);
+
+					einfo = rcu_dereference(e->info);
+					if (newskb)
+						hwsim_hw_receive(e->endpoint->hw, newskb, einfo->lqi);
+			}	
+		}
+		rcu_read_unlock();
+
+		ieee802154_xmit_complete(hw, skb, false);
+		return 0;
+	}
 }
 
 static int hwsim_cloned_frame_received_nl(struct sk_buff *skb_2,
@@ -632,8 +642,15 @@ static int hwsim_cloned_frame_received_nl(struct sk_buff *skb_2,
 		endpoint_pib = rcu_dereference(e->endpoint->pib);
 		if (current_pib->page == endpoint_pib->page &&
 			current_pib->channel == endpoint_pib->channel) {
-			struct sk_buff *newskb = pskb_copy(skb, GFP_ATOMIC);
 
+			struct ieee802154_hw *hw1 = e->endpoint->hw;
+			struct hwsim_phy *phy1 = hw1->priv;
+			u8* addr64 = phy1->ieee_addr;
+							
+			if (dst_addr_mode == IEEE802154_ADDR_LONG && memcmp(dst, addr64, 8) != 0)
+				continue;
+
+			struct sk_buff *newskb = pskb_copy(skb, GFP_ATOMIC);
 			einfo = rcu_dereference(e->info);
 			if (newskb)
 				hwsim_hw_receive(e->endpoint->hw, newskb, einfo->lqi);	
@@ -657,7 +674,7 @@ static int hwsim_cloned_frame_received_nl(struct sk_buff *skb_2,
 			goto out;
 	}*/
 
-	ieee802154_xmit_complete(hw, skb, false);
+	//ieee802154_xmit_complete(hw, skb, false);
 	return 0;
 err:
 	pr_debug("mac802154_hwsim: error occurred in %s\n", __func__);

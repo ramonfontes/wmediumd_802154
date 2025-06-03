@@ -27,7 +27,7 @@ cd wmediumd && make
 Starting wmediumd with an appropriate config file is enough to make frames
 pass through wmediumd:
 ```
-sudo modprobe mac80211_hwsim radios=2
+sudo modprobe mac802154_hwsim radios=2
 sudo ./wmediumd/wmediumd -c tests/2node.cfg &
 # run some hwsim test
 ```
@@ -56,7 +56,31 @@ ifaces :
 };
 ```
 
-## Per-link loss probability model
+## Path loss model
+
+The path loss model derives signal-to-noise and probabilities from the
+coordinates of each node.  This is an example configuration file for it.
+
+```
+ifaces : {...};
+model :
+{
+	type = "path_loss";
+	positions = (
+		(-50.0,   0.0),
+		(  0.0,  40.0),
+		(  0.0, -70.0),
+		( 50.0,   0.0)
+	);
+	tx_powers = (15.0, 15.0, 15.0, 15.0);
+
+	model_name = "log_distance";
+	path_loss_exp = 3.5;
+	xg = 0.0;
+};
+```
+
+## Per-link loss probability model (TBD)
 
 You can simulate a slightly more realistic channel by assigning fixed error
 probabilities to each link.
@@ -92,7 +116,7 @@ probability will be symmetric.
 This is a very simplistic model that does not take into account that losses
 depend on transmission rates and signal-to-noise ratio.  For that, keep reading.
 
-## Per-link signal-to-noise ratio (SNR) model
+## Per-link signal-to-noise ratio (SNR) model (TBD)
 
 You can model different signal-to-noise ratios for each link by including a
 list of link tuples in the form of (sta1, sta2, snr).
@@ -129,102 +153,3 @@ direction.
 The packet loss error probabilities are derived from this snr.  See function
 `get_error_prob_from_snr()`.  Or you can provide a packet-error-rate table like
 the one in `tests/signal_table_ieee80211ax`
-
-## Path loss model
-
-The path loss model derives signal-to-noise and probabilities from the
-coordinates of each node.  This is an example configuration file for it.
-
-```
-ifaces : {...};
-model :
-{
-	type = "path_loss";
-	positions = (
-		(-50.0,   0.0),
-		(  0.0,  40.0),
-		(  0.0, -70.0),
-		( 50.0,   0.0)
-	);
-	directions = (
-		(  0.0,   0.0),
-		(  0.0,  10.0),
-		(  0.0,  10.0),
-		(  0.0,   0.0)
-	);
-	tx_powers = (15.0, 15.0, 15.0, 15.0);
-
-	model_name = "log_distance";
-	path_loss_exp = 3.5;
-	xg = 0.0;
-};
-```
-
-## Gotchas
-
-### Allowable MAC addresses
-
-The kernel only allows wmediumd to work on the second available hardware
-address, which has bit 6 set in the most significant octet
-(i.e. 42:00:00:xx:xx:xx, not 02:00:00:xx:xx:xx).  Set this appropriately
-using 'ip link set address'.
-
-This issue was fixed in commit cd37a90b2a417e5882414e19954eeed174aa4d29
-in Linux, released in kernel 4.1.0.
-
-### Rates
-
-wmediumd's rate table is currently hardcoded to 802.11a OFDM rates.
-Therefore, either operate wmediumd networks in 5 GHz channels, or supply
-a rateset for the BSS with no CCK rates.
-
-### Send-to-self
-
-By default, traffic between local devices in Linux will not go over
-the wire / wireless medium.  This is true of vanilla hwsim as well.
-In order to make this happen, you need to either run the hwsim interfaces
-in separate network namespaces, or you need to set up routing rules with
-the hwsim devices at a higher priority than local forwarding.
-
-`tests/test-001.sh` contains an example of the latter setup.
-
-# Example session
-
-The following sequence of commands establishes a two-node mesh using network
-namespaces.
-```
-sudo modprobe -r mac80211_hwsim
-sudo modprobe mac80211_hwsim
-sudo ./wmediumd/wmediumd -c ./tests/2node.cfg
-
-# in window 2
-sudo lxc-unshare -s NETWORK bash
-ps | grep bash  # note pid
-
-# in window 1
-sudo iw phy phy2 set netns $pid
-
-sudo ip link set wlan1 down
-sudo iw dev wlan1 set type mp
-sudo ip link set addr 42:00:00:00:00:00 dev wlan1
-sudo ip link set wlan1 up
-sudo ip addr add 10.10.10.1/24 dev wlan1
-sudo iw dev wlan1 set channel 149
-sudo iw dev wlan1 mesh join meshabc
-
-# in window 2
-ip link set lo
-
-sudo ip link set wlan2 down
-sudo iw dev wlan2 set type mp
-sudo ip link set addr 42:00:00:00:01:00 dev wlan2
-sudo ip link set wlan2 up
-sudo ip addr add 10.10.10.2/24 dev wlan2
-sudo iw dev wlan2 set channel 149
-sudo iw dev wlan2 mesh join meshabc
-
-iperf -u -s -i 10 -B 10.10.10.2
-
-# in window 1
-iperf -u -c 10.10.10.2 -b 100M -i 10 -t 120
-```
