@@ -62,8 +62,8 @@ static int get_link_snr_from_snr_matrix(struct wmediumd *ctx,
 
 static double _get_error_prob_from_snr(struct wmediumd *ctx, double snr,
 					   unsigned int rate_idx, u32 freq,
-					   int frame_len,
-				       struct station *src, struct station *dst)
+					   int frame_len, struct station *src, 
+					   struct station *dst)
 {
 	return get_error_prob_from_snr(snr, rate_idx, freq, frame_len);
 }
@@ -849,7 +849,6 @@ int load_config(struct wmediumd *ctx, const char *file, const char *per_file, bo
 						start, end, error_prob_value);
 					goto fail;
 			}
-
 			ctx->error_prob_matrix[ctx->num_stas * start + end] =
 				error_prob_value;
 			link_map[ctx->num_stas * start + end] = true;

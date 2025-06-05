@@ -373,9 +373,7 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
 	for (int i = 0; i < 8; i++)
 		dest[i] = frame->data[5 + 7 - i];
 
-//	 print_extended_addr(dest);
-
-	uint8_t *ptr = hdr;
+	uint8_t *ptr = (uint8_t *)hdr;
 
 	uint16_t fcf = ptr[0] | (ptr[1] << 8); // Get FCF
 	
@@ -417,6 +415,7 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
  		error_prob = ctx->get_error_prob(ctx, snr, rate_idx,
 						 frame->freq, frame->data_len,
 						 station, deststa);
+	
 		for (j = 0; j < frame->tx_rates[i].count; j++) {
 			send_time += difs + pkt_duration(ctx, frame->data_len,
 				index_to_rate(rate_idx, frame->freq));
@@ -447,7 +446,7 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
 			send_time += ack_time_usec;
 		}
 	}
-	
+
 	is_acked = true;
 	if (is_acked) {
 		//frame->tx_rates[i-1].count = j + 1;
@@ -482,13 +481,13 @@ void queue_frame(struct wmediumd *ctx, struct station *station,
     }
 
 	timespec_add_usec(&target, send_time);
-
 	frame->duration = send_time;
 	frame->expires = target;
 
 	list_add_tail(&frame->list, &queue->frames);
-
+	
 	rearm_timer(ctx);
+			
 }
 
 /*
@@ -509,7 +508,7 @@ static int send_tx_info_frame_nl(struct wmediumd *ctx, struct frame *frame)
 	for (int i = 0; i < 8; i++)
 		dest[i] = frame->data[5 + 7 - i];
 
-	uint8_t *ptr = hdr;
+	uint8_t *ptr = (uint8_t *)hdr;
 
 	uint16_t fcf = ptr[0] | (ptr[1] << 8); // Get FCF
 	
@@ -644,7 +643,7 @@ int send_cloned_frame_msg(struct wmediumd *ctx, struct station *dst,
 			addr_len = 8;
 		}
 	}
-
+	
 	msg = nlmsg_alloc();
 	if (!msg) {
 		w_logf(ctx, LOG_ERR, "Error allocating new message MSG!\n");
@@ -685,7 +684,7 @@ int send_cloned_frame_msg(struct wmediumd *ctx, struct station *dst,
 	}
 	
 	ret = 0;
-	nl_msg_dump(msg, stdout);
+	//nl_msg_dump(msg, stdout);
 
 out:
 	nlmsg_free(msg);
@@ -708,7 +707,7 @@ void deliver_frame(struct wmediumd *ctx, struct frame *frame)
 	
             int rate_idx;
 
-			u8 *dest = NULL;
+			u16 dest = NULL;
 
 			uint64_t *addr64 = (uint64_t *)&hdr->dest.extended_addr;
 			uint64_t shifted = (*addr64) << 40;
@@ -725,7 +724,7 @@ void deliver_frame(struct wmediumd *ctx, struct frame *frame)
 				dest = inverted_addr;
 			}
 
-			uint8_t *ptr = hdr;
+			uint8_t *ptr = (uint8_t *)hdr;
 
 			uint16_t fcf = ptr[0] | (ptr[1] << 8); // Get FCF
 
@@ -925,7 +924,7 @@ static int process_recvd_data(struct wmediumd *ctx, struct nlmsghdr *nlh)
 			
 			u64 cookie = nla_get_u64(attrs[MAC802154_HWSIM_ATTR_COOKIE]);
 
-			uint8_t *ptr = data;
+			uint8_t *ptr = (uint8_t *)data;
 
 			uint16_t fcf = ptr[0] | (ptr[1] << 8); // Get FCF
 			ptr += 2;
@@ -1026,7 +1025,6 @@ static int process_recvd_data(struct wmediumd *ctx, struct nlmsghdr *nlh)
 			frame->cookie = cookie;
 			//frame->freq = freq;
 			frame->sender = sender;
-			
 			queue_frame(ctx, sender, frame, data, dest_addr_len);
 		}
 out:
@@ -1488,7 +1486,7 @@ int main(int argc, char *argv[])
 
 	/* register for new frames */
 	if (send_register_msg(&ctx) == 0) {
-		w_logf(&ctx, LOG_NOTICE, "REGISTER SENT!!\n");
+		w_logf(&ctx, LOG_NOTICE, "REGISTER SENT!\n");
 	}
 
 	if (start_server == true)

@@ -59,7 +59,7 @@ sudo ./interference.sh
 
 Start the wmediumd_802154 daemon using socket mode and your chosen config file:
 ```
-sudo wmediumd_802154 -s -c tree.cfg
+sudo wmediumd_802154 -s -c tree_interference.cfg
 ```
 
 This command launches wmediumd_802154, which connects to the mac802154_hwsim module via netlink and simulates interference and packet loss between IEEE 802.15.4 virtual devices according to the configuration in tree.cfg.

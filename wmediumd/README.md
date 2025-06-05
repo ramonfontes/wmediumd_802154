@@ -86,15 +86,7 @@ You can simulate a slightly more realistic channel by assigning fixed error
 probabilities to each link.
 
 ```
-ifaces :
-{
-	ids = [
-		"02:00:00:00:00:00:00:00",
-		"02:00:00:00:00:00:00:01",
-		"02:00:00:00:00:00:00:02",
-		"02:00:00:00:00:00:00:03"
-	];
-};
+ifaces : {...};
 
 model:
 {
@@ -116,30 +108,22 @@ probability will be symmetric.
 This is a very simplistic model that does not take into account that losses
 depend on transmission rates and signal-to-noise ratio.  For that, keep reading.
 
-## Per-link signal-to-noise ratio (SNR) model (TBD)
+## Per-link signal-to-noise ratio (SNR) model
 
 You can model different signal-to-noise ratios for each link by including a
-list of link tuples in the form of (sta1, sta2, snr).
+list of link tuples in the form of (sensor1, sensor2, snr).
 
 ```
-ifaces :
-{
-	ids = [
-		"02:00:00:00:00:00:00:00",
-		"02:00:00:00:00:00:00:01",
-		"02:00:00:00:00:00:00:02",
-		"02:00:00:00:00:00:00:03"
-	];
+ifaces : {...};
 
+model:
+{
+	type = "snr"
 	links = (
-		(0, 1, 0),
-		(0, 2, 0),
-		(2, 0, 10),
-		(0, 3, 0),
-		(1, 2, 30),
-		(1, 3, 10),
-		(2, 3, 20)
+		(0, 1, 10),
+		(0, 2, 0)
 	);
+	fading_coefficient = 1;
 };
 ```
 The snr will affect the maximum data rates that are successfully transmitted
